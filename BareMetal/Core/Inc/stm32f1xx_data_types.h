@@ -129,11 +129,11 @@ typedef uint8_t									reg_field_width_t;
 typedef uint32_t								frequency_t;
 
 /** @brief Zero-valued frequency used for inactive or unavailable clocks @def FREQ_ZERO */
-#define FREQ_ZERO		((frequency_t) 0UL)
+#define FREQ_ZERO								((frequency_t) 0UL)
 /** @brief One-kilohertz frequency scaling constant @def FREQ_1kHz */
-#define FREQ_1kHz		((frequency_t) 1000UL)
+#define FREQ_1kHz								((frequency_t) 1000UL)
 /** @brief One-megahertz frequency scaling constant @def FREQ_1MHz */
-#define FREQ_1MHz		((frequency_t) 1000000UL)
+#define FREQ_1MHz								((frequency_t) 1000000UL)
 
 // ==================================================================================================== //
 // Driver Operation Status Type
@@ -194,7 +194,7 @@ typedef enum _driver_status_t
  * @warning Use this macro only inside a function whose return type admits every
  * value in @ref driver_status_t
  */
-#define ASSERT_DRIVER_STATUS(expr)		\
+#define ASSERT_DRIVER_STATUS(expr)				\
 do												\
 {												\
 	driver_status_t _st = (expr);				\
