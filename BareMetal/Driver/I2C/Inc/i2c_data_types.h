@@ -42,7 +42,7 @@ extern "C" {
  * are rejected by the Driver. The Codec layer encodes this value into the
  * address byte by shifting left one bit and adding the R/W bit.
  */
-typedef uint8_t									i2c_address_t;
+typedef uint8_t								i2c_address_t;
 
 /**
  * @brief I2C data byte type
@@ -52,7 +52,7 @@ typedef uint8_t									i2c_address_t;
  * does not impose a maximum transfer size, but the application may
  * limit the number of bytes to send or receive.
  */
-typedef uint8_t									i2c_data_t;
+typedef uint8_t								i2c_data_t;
 
 /**
  * @brief I2C register address type
@@ -60,7 +60,7 @@ typedef uint8_t									i2c_data_t;
  * @details
  * Single-byte register address for memory-mapped I2C devices.
  */
-typedef uint8_t									i2c_reg_addr_t;
+typedef uint8_t								i2c_reg_addr_t;
 
 /**
  * @brief I2C transfer byte count type
@@ -71,7 +71,7 @@ typedef uint8_t									i2c_reg_addr_t;
  * requirements and does not have a hardware limit other than
  * address-byte field width.
  */
-typedef uint16_t								i2c_data_length_t;
+typedef uint16_t							i2c_data_length_t;
 
 /**
  * @brief I2C error type for transfer results
@@ -81,7 +81,7 @@ typedef uint16_t								i2c_data_length_t;
  * a single primary error from the SR1 hardware flags and software
  * timeout/stuck-BUSY conditions.
  */
-typedef uint8_t						i2c_error_t;
+typedef uint8_t								i2c_error_t;
 
 /** @brief No error @def I2C_ERROR_NONE */
 #define I2C_ERROR_NONE						((i2c_error_t) 0U)
@@ -103,25 +103,6 @@ typedef uint8_t						i2c_error_t;
 #define I2C_ERROR_STUCK_BUSY				((i2c_error_t) 8U)
 /** @brief Recovery failed @def I2C_ERROR_RECOVERY_FAILED */
 #define I2C_ERROR_RECOVERY_FAILED			((i2c_error_t) 9U)
-
-/**
- * @brief I2C transfer result structure
- * @typedef i2c_transfer_result_t
- * @details
- * Records exact transfer progress and the primary typed error. Published
- * by the Driver after START is requested; unchanged on preflight failure.
- */
-typedef struct
-{
-	//! Number of bytes successfully transmitted
-	uint16_t	txBytesTransferred;
-
-	//! Number of bytes successfully received
-	uint16_t	rxBytesTransferred;
-
-	//! Primary error cause
-	i2c_error_t	error;
-} i2c_transfer_result_t;
 
 /** @} */ // I2C_02_DataTypes
 

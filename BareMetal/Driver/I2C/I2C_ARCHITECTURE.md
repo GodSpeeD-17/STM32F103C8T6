@@ -349,8 +349,7 @@ driver_status_t I2C_MasterTransmit
 	const i2c_address_t          address,
 	const i2c_data_t* const      pData,
 	const i2c_transfer_size_t    size,
-	const uint32_t               timeout_ms,
-	i2c_transfer_result_t* const pResult
+	const uint32_t               timeout_ms
 );
 
 driver_status_t I2C_MasterReceive
@@ -359,8 +358,7 @@ driver_status_t I2C_MasterReceive
 	const i2c_address_t          address,
 	i2c_data_t* const            pData,
 	const i2c_transfer_size_t    size,
-	const uint32_t               timeout_ms,
-	i2c_transfer_result_t* const pResult
+	const uint32_t               timeout_ms
 );
 
 driver_status_t I2C_MasterWriteRead
@@ -371,8 +369,7 @@ driver_status_t I2C_MasterWriteRead
 	const i2c_transfer_size_t    writeSize,
 	i2c_data_t* const            pReadData,
 	const i2c_transfer_size_t    readSize,
-	const uint32_t               timeout_ms,
-	i2c_transfer_result_t* const pResult
+	const uint32_t               timeout_ms
 );
 ```
 
@@ -381,7 +378,7 @@ Contract rules:
 - `I2Cx` is exactly `I2C1` or `I2C2`.
 - `address` is the unshifted seven-bit value `0x08U..0x77U`; Codec inserts the
   R/W bit. Reserved addresses are rejected.
-- Transfer sizes and `timeout_ms` are nonzero. Buffer/result pointers are
+- Transfer sizes and `timeout_ms` are nonzero. Buffer pointers are
   non-`NULL`. Zero-byte transfers are rejected rather than interpreted as a
   quick command.
 - Configuration/lifecycle APIs require the application-owned APB1 clock gate.
@@ -390,9 +387,7 @@ Contract rules:
   concurrent owner, and a free bus before a fresh START.
 - `timeout_ms` is a transaction-wide timeout in milliseconds. Each hardware
   sample consumes time; it is not reset per byte, so work remains globally bounded.
-- `pResult` is unchanged on preflight failure. After START is requested it is
-  published on every return with exact typed failure and completed TX/RX byte
-  counts. `DRIVER_STATUS_ERROR_FAIL` therefore never hides the hardware cause.
+- Transfer APIs report typed failure through their return status; `DRIVER_STATUS_ERROR_FAIL` never hides the hardware cause.
 - A receive destination is unchanged beyond `rxBytesTransferred`; the prefix
   may contain received bytes on transaction failure. Whole-buffer rollback is
   impossible without caller-provided scratch storage and is not claimed.
@@ -405,11 +400,9 @@ Contract rules:
   Standard mode above 88 kHz because ES096 2.8.5 physical preconditions are not
   observable by this Driver.
 
-`i2c_transfer_result_t` records at least `txBytesTransferred`,
-`rxBytesTransferred`, and a single primary `i2c_error_t` selected from none,
-address NACK, data NACK, arbitration lost, bus error, overrun/underrun, hardware
-timeout, software timeout, stuck BUSY, and recovery failed. A raw SR1 snapshot
-may be included for diagnostics but does not replace the semantic error.
+`i2c_error_t` is the primary typed error selected from none, address NACK,
+data NACK, arbitration lost, bus error, overrun/underrun, hardware timeout,
+software timeout, stuck BUSY, and recovery failed.
 
 ## Configuration Model
 
@@ -553,8 +546,7 @@ passes when either bit is set.
 - Restore ACK=1 and POS=0 only when START/STOP action rules permit CR1 access.
 - If STOP/BUSY does not complete, report stuck BUSY and leave GPIO recovery to
   BSP/application. CR1.SWRST is attempted where ES096/RM0008 permits it.
-- The final return status describes operation success/failure; `pResult`
-  preserves the exact cause, progress, and recovery outcome.
+- The final return status describes operation success/failure and preserves the exact cause, progress, and recovery outcome.
 
 ## Event, Error, Interrupt, and NVIC Model
 

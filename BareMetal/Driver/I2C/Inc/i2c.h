@@ -114,7 +114,7 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
  * @note The APB1 clock gate, GPIO/AFIO route, and NVIC delivery retain their application-owned states
  */
-driver_status_t I2C_DeConfig(I2C_TypeDef* const I2Cx);
+driver_status_t I2C_Init(I2C_TypeDef* const I2Cx);
 
 /**
  * @brief Configures the supported controller timing baseline for one I2C instance
@@ -143,7 +143,7 @@ driver_status_t I2C_DeConfig(I2C_TypeDef* const I2Cx);
  * @pre `I2Cx_CR1.PE` is cleared and no START or STOP action is pending
  * @note Deferred IRQ, DMA, GPIO/AFIO, and NVIC domains are not configured by this API
  */
-driver_status_t I2C_Config(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
+driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
 
 // ==================================================================================================== //
 // I2C Controller Transfer APIs
@@ -173,21 +173,17 @@ driver_status_t I2C_Config(I2C_TypeDef* const I2Cx, const i2c_config_t* const pC
  * @param[in] timeout_ms Transaction-wide timeout in milliseconds
  * Accepted values:
  * - Nonzero: Total polling budget for the complete transaction
- * @param[out] pResult Transfer result destination
- * Expected values:
- * - Non-`NULL`: Exact progress and primary error are published after START
  * @returns @ref driver_status_t "I2C controller transmit operation status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were transmitted and STOP was generated
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx`, @p `pData`, or @p `pResult` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `address`, @p `size`, or @p `timeout_ms` was invalid
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled or I2C is not configured and enabled
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
- * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer failed; @p `pResult` identifies the primary cause after START
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer failed after START
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
  * @pre I2C is configured, enabled, idle, and exclusively owned by the caller
- * @note @p `pResult` is unchanged when preflight fails; after START it is published on every return
- */
+ *  */
 driver_status_t I2C_MasterTransmit
 (
 	I2C_TypeDef* const			I2Cx,
@@ -222,20 +218,17 @@ driver_status_t I2C_MasterTransmit
  * @param[in] timeout_ms Transaction-wide timeout in milliseconds
  * Accepted values:
  * - Nonzero: Total polling budget for the complete transaction
- * @param[out] pResult Transfer result destination
- * Expected values:
- * - Non-`NULL`: Exact progress and primary error are published after START
  * @returns @ref driver_status_t "I2C controller receive operation status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were received and STOP was generated
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx`, @p `pData`, or @p `pResult` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `address`, @p `size`, or @p `timeout_ms` was invalid
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled or I2C is not configured and enabled
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
- * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer failed; @p `pResult` identifies the primary cause after START
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer failed after START
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
  * @pre I2C is configured, enabled, idle, and exclusively owned by the caller
- * @note Bytes before `pResult->rxBytesTransferred` may be valid after a transfer failure; later destination bytes remain unchanged
+ * @note Received bytes up to the failure point may be valid; later destination bytes remain unchanged
  */
 driver_status_t I2C_MasterReceive
 (
