@@ -51,17 +51,14 @@ extern "C" {
  * is valid for ordinary transfers but not for combined write-then-read
  * operations in Standard mode.
  */
-typedef enum
-{
-	//! 88 kHz Standard mode (ES096-safe for repeated START)
-	I2C_SPEED_PRESET_88_KHZ = 0,
+typedef uint8_t						i2c_speed_preset_t;
 
-	//! 100 kHz Standard mode (ordinary transfers only)
-	I2C_SPEED_PRESET_100_KHZ,
-
-	//! 400 kHz Fast mode
-	I2C_SPEED_PRESET_400_KHZ
-} i2c_speed_preset_t;
+/** @brief 88 kHz Standard mode (ES096-safe for repeated START) @def I2C_SPEED_PRESET_88_KHZ */
+#define I2C_SPEED_PRESET_88_KHZ			((i2c_speed_preset_t) 0U)
+/** @brief 100 kHz Standard mode (ordinary transfers only) @def I2C_SPEED_PRESET_100_KHZ */
+#define I2C_SPEED_PRESET_100_KHZ			((i2c_speed_preset_t) 1U)
+/** @brief 400 kHz Fast mode @def I2C_SPEED_PRESET_400_KHZ */
+#define I2C_SPEED_PRESET_400_KHZ			((i2c_speed_preset_t) 2U)
 
 /** @} */ // I2C_02_Defines_01_SpeedPresets
 
@@ -83,14 +80,12 @@ typedef enum
  * relationship affects rise-time margin and pull-up requirements per
  * RM0008 Section 26.4.7.
  */
-typedef enum
-{
-	//! DUTY=0: Tlow/Thigh = 2/1 (CCR = PCLK1 / (3 * FSCL))
-	I2C_FAST_DUTY_2_1 = 0,
+typedef uint8_t						i2c_fast_duty_t;
 
-	//! DUTY=1: Tlow/Thigh = 16/9 (CCR = PCLK1 / (25 * FSCL))
-	I2C_FAST_DUTY_16_9
-} i2c_fast_duty_t;
+/** @brief DUTY=0: Tlow/Thigh = 2/1 (CCR = PCLK1 / (3 * FSCL)) @def I2C_FAST_DUTY_2_1 */
+#define I2C_FAST_DUTY_2_1			((i2c_fast_duty_t) 0U)
+/** @brief DUTY=1: Tlow/Thigh = 16/9 (CCR = PCLK1 / (25 * FSCL)) @def I2C_FAST_DUTY_16_9 */
+#define I2C_FAST_DUTY_16_9			((i2c_fast_duty_t) 1U)
 
 /** @} */ // I2C_02_Defines_02_FastDuty
 

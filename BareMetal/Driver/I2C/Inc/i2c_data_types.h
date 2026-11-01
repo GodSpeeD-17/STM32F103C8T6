@@ -81,38 +81,28 @@ typedef uint16_t								i2c_data_length_t;
  * a single primary error from the SR1 hardware flags and software
  * timeout/stuck-BUSY conditions.
  */
-typedef enum
-{
-	//! No error
-	I2C_ERROR_NONE = 0,
+typedef uint8_t						i2c_error_t;
 
-	//! Address NACK (AF before ADDR)
-	I2C_ERROR_ADDRESS_NACK,
-
-	//! Data NACK (AF after data)
-	I2C_ERROR_DATA_NACK,
-
-	//! Arbitration lost
-	I2C_ERROR_ARBITRATION_LOST,
-
-	//! Bus error
-	I2C_ERROR_BUS_ERROR,
-
-	//! Overrun/underrun
-	I2C_ERROR_OVERRUN,
-
-	//! Hardware timeout (SMBus)
-	I2C_ERROR_HARDWARE_TIMEOUT,
-
-	//! Software timeout (poll budget exhausted)
-	I2C_ERROR_SOFTWARE_TIMEOUT,
-
-	//! Stuck BUSY before START
-	I2C_ERROR_STUCK_BUSY,
-
-	//! Recovery failed
-	I2C_ERROR_RECOVERY_FAILED
-} i2c_error_t;
+/** @brief No error @def I2C_ERROR_NONE */
+#define I2C_ERROR_NONE						((i2c_error_t) 0U)
+/** @brief Address NACK (AF before ADDR) @def I2C_ERROR_ADDRESS_NACK */
+#define I2C_ERROR_ADDRESS_NACK				((i2c_error_t) 1U)
+/** @brief Data NACK (AF after data) @def I2C_ERROR_DATA_NACK */
+#define I2C_ERROR_DATA_NACK					((i2c_error_t) 2U)
+/** @brief Arbitration lost @def I2C_ERROR_ARBITRATION_LOST */
+#define I2C_ERROR_ARBITRATION_LOST			((i2c_error_t) 3U)
+/** @brief Bus error @def I2C_ERROR_BUS_ERROR */
+#define I2C_ERROR_BUS_ERROR					((i2c_error_t) 4U)
+/** @brief Overrun/underrun @def I2C_ERROR_OVERRUN */
+#define I2C_ERROR_OVERRUN					((i2c_error_t) 5U)
+/** @brief Hardware timeout (SMBus) @def I2C_ERROR_HARDWARE_TIMEOUT */
+#define I2C_ERROR_HARDWARE_TIMEOUT			((i2c_error_t) 6U)
+/** @brief Software timeout (poll budget exhausted) @def I2C_ERROR_SOFTWARE_TIMEOUT */
+#define I2C_ERROR_SOFTWARE_TIMEOUT			((i2c_error_t) 7U)
+/** @brief Stuck BUSY before START @def I2C_ERROR_STUCK_BUSY */
+#define I2C_ERROR_STUCK_BUSY				((i2c_error_t) 8U)
+/** @brief Recovery failed @def I2C_ERROR_RECOVERY_FAILED */
+#define I2C_ERROR_RECOVERY_FAILED			((i2c_error_t) 9U)
 
 /**
  * @brief I2C transfer result structure
