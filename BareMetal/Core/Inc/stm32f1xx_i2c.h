@@ -384,6 +384,13 @@ extern "C" {
 /** @brief Own-address mode selection (`I2Cx_OAR1.ADDMODE`) bit mask alias @def I2C_OAR1_ADDMODE */
 #define I2C_OAR1_ADDMODE			I2C_OAR1_ADDMODE_Msk
 
+/** @brief Mandatory reserved bit 14 that configuration must keep at one (`I2Cx_OAR1`) bit position @def I2C_OAR1_BIT14_MUST_SET_Pos */
+#define I2C_OAR1_BIT14_MUST_SET_Pos	((reg_bit_pos_t) 14U)
+/** @brief Mandatory reserved bit 14 that configuration must keep at one (`I2Cx_OAR1`) bit mask @def I2C_OAR1_BIT14_MUST_SET_Msk */
+#define I2C_OAR1_BIT14_MUST_SET_Msk	REG_BIT_MASK(I2C_OAR1_BIT14_MUST_SET_Pos)
+/** @brief Mandatory reserved bit 14 that configuration must keep at one (`I2Cx_OAR1`) bit mask alias @def I2C_OAR1_BIT14_MUST_SET */
+#define I2C_OAR1_BIT14_MUST_SET		I2C_OAR1_BIT14_MUST_SET_Msk
+
 // ---------------------------------------------------------------------------------------------------- //
 // I2Cx_OAR2
 // ---------------------------------------------------------------------------------------------------- //
@@ -712,7 +719,8 @@ typedef volatile struct __I2C_TypeDef
 	 * @brief [R/W] Primary 7-bit or 10-bit slave address
 	 * @details
 	 * `ADDMODE` selects the address width. Bit 14 is hardware-reserved but must
-	 * be kept at `1` by configuration code as required by RM0008.
+	 * be kept at `1` by configuration code as required by RM0008. Use
+	 * @ref I2C_OAR1_BIT14_MUST_SET to preserve this bit when staging OAR1.
 	 */
 	union I2C_OAR1
 	{
@@ -725,7 +733,7 @@ typedef volatile struct __I2C_TypeDef
 			_IO ADD1_7 : 7;					/**< Own-address bits 7 through 1 */
 			_IO ADD8_9 : 2;					/**< Own-address bits 9 through 8 */
 			_IO reserved_1 : 4;				/**< Reserved */
-			_IO reserved_must_set : 1;		/**< Reserved bit that configuration must keep at one */
+			_IO reserved_bit14 : 1;			/**< Reserved bit 14: configuration must keep at one via @ref I2C_OAR1_BIT14_MUST_SET */
 			_IO ADDMODE : 1;				/**< Own-address mode selection */
 			_IO reserved_2 : 16;			/**< Reserved */
 		} BIT;
@@ -811,28 +819,26 @@ typedef volatile struct __I2C_TypeDef
 	 * @details
 	 * Reading SR2 after SR1 is part of the hardware sequence that clears
 	 * `I2Cx_SR1.ADDR`; an isolated SR2 read can therefore have protocol-visible
-	 * consequences when ADDR is set. The register image remains `_IO` because
-	 * the existing I2C LL interface exposes complete register-image operations;
-	 * application policy must still treat these hardware-populated fields as
-	 * observations.
+	 * consequences when ADDR is set. All fields are hardware-populated and
+	 * read-only from software.
 	 */
 	union I2C_SR2
 	{
 		/** @brief Full 32-bit `I2Cx_SR2` register image */
-		_IO REG;
+		_I REG;
 		/** @brief Named `I2Cx_SR2` bitfield view */
 		struct
 		{
-			_IO MSL : 1;					/**< Master or slave mode state */
-			_IO BUSY : 1;					/**< Bus busy state */
-			_IO TRA : 1;					/**< Transmitter or receiver direction state */
-			_IO reserved_1 : 1;				/**< Reserved */
-			_IO GENCALL : 1;				/**< General-call address match state */
-			_IO SMBDEFAULT : 1;				/**< SMBus device-default address match state */
-			_IO SMBHOST : 1;				/**< SMBus host-header match state */
-			_IO DUALF : 1;					/**< Second own-address match state */
-			_IO PEC : 8;					/**< Packet error checking value */
-			_IO reserved_2 : 16;			/**< Reserved */
+			_I MSL : 1;						/**< Master or slave mode state */
+			_I BUSY : 1;						/**< Bus busy state */
+			_I TRA : 1;						/**< Transmitter or receiver direction state */
+			_I reserved_1 : 1;				/**< Reserved */
+			_I GENCALL : 1;					/**< General-call address match state */
+			_I SMBDEFAULT : 1;				/**< SMBus device-default address match state */
+			_I SMBHOST : 1;					/**< SMBus host-header match state */
+			_I DUALF : 1;					/**< Second own-address match state */
+			_I PEC : 8;						/**< Packet error checking value */
+			_I reserved_2 : 16;				/**< Reserved */
 		} BIT;
 	} SR2;			/**< Bus-state register image and named-field views */
 

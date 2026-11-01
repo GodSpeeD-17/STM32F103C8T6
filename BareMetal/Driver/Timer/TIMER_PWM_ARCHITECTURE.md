@@ -26,7 +26,7 @@ The base implementation is intentionally narrow:
   shared-frequency registry is introduced.
 
 This guide must be read with the normative planning and safety rules in
-`BareMetal/Driver/DRIVER_STACK_TOP_DOWN_AUDIT.md`. The existing
+`AGENTS.md` (repository root; Part 2: Driver Stack Top-Down Audit Method). The existing
 `BareMetal/Driver/Timer/TIMER_ARCHITECTURE.md` remains the broader Timer stack
 reference. Those planning documents are deliberately excluded from generated
 Doxygen output, so their repository paths are recorded without Doxygen links.

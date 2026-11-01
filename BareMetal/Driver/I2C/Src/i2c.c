@@ -6,7 +6,7 @@ I2C_Config(i2c_t I2Cx, i2c_config_t* const config)
 	
 }
 
-#ifdef __OLD_I2C__
+#if 0
 
 // Static Variable for Memory Efficiency
 static uint32_t temp = 0x00;
@@ -198,4 +198,4 @@ void I2C_Read_Reg_Block(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registe
 	I2C_Master_Stop(I2Cx);
 }
 
-#endif /* __OLD_I2C__ */
+#endif

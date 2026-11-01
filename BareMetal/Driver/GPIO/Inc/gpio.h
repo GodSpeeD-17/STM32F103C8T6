@@ -65,7 +65,7 @@ driver_status_t GPIO_GetPinModeConfig
 	GPIO_TypeDef* const			GPIOx,
 	const gpio_pin_t			pin,
 	gpio_pin_mode_t* const		pMode,
-	gpio_pin_config_t* const		pConfig
+	gpio_pin_config_t* const	pConfig
 );
 
 /**

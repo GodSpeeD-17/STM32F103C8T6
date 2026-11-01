@@ -273,24 +273,12 @@ __STATIC_FORCEINLINE void LL_I2C_WriteSR1(I2C_TypeDef* const I2Cx, const reg reg
  * @param[in]	I2Cx	I2C peripheral instance
  * @returns Full `I2Cx_SR2` image.
  * @note `SR2` contains additional status flags. Flag extraction and interpretation
- * are codec responsibilities.
+ * are codec responsibilities. SR2 is hardware-populated and read-only; no write accessor exists.
  */
 __STATIC_FORCEINLINE reg LL_I2C_ReadSR2(I2C_TypeDef* const I2Cx)
 {
 	//! Address the SR2 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, SR2));
-}
-
-/**
- * @brief Writes the I2C `SR2` register image
- * @param[in]	I2Cx			I2C peripheral instance
- * @param[in]	registerImage	Full `I2Cx_SR2` image to write
- * @note Caller owns the write sequence and field placement.
- */
-__STATIC_FORCEINLINE void LL_I2C_WriteSR2(I2C_TypeDef* const I2Cx, const reg registerImage)
-{
-	//! Forward the staged SR2 image without modifying unrelated fields.
-	LL_I2C_WriteRegister(LL_I2C_REG(I2Cx, SR2), registerImage);
 }
 
 /**

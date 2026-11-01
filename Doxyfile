@@ -918,8 +918,7 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which doxygen is
 # run.
 
-EXCLUDE                = ./BareMetal/Driver/DRIVER_STACK_TOP_DOWN_AUDIT.md \
-                         ./BareMetal/Driver/Timer/TIMER_ARCHITECTURE.md \
+EXCLUDE                = ./BareMetal/Driver/Timer/TIMER_ARCHITECTURE.md \
                          ./BareMetal/Driver/Timer/TODO.md
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or

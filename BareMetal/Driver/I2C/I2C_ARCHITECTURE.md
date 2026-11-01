@@ -14,7 +14,7 @@ directory. It does not authorize SSD1306 integration.
 | Last verified commit | `b865ebad95d8d5ee65569182e0f20bedf7792cec` (`2026-08-28`) |
 | Evidence date | `2026-08-28` |
 | Planning direction | Driver -> Codec -> LL |
-| Planning authority | [`../DRIVER_STACK_TOP_DOWN_AUDIT.md`](../DRIVER_STACK_TOP_DOWN_AUDIT.md) and [`../../../CODING_PREFERENCES.md`](../../../CODING_PREFERENCES.md) |
+| Planning authority | [`../../../AGENTS.md`](../../../AGENTS.md) (Part 2: Driver Stack Top-Down Audit Method) |
 | Repository references | `AGENTS.md`, `DRIVER_DOCUMENTATION.md`, USART/Timer/NVIC architecture pages, all files in this directory, the Core I2C header, and the shared CMake source resolver |
 | Hardware reference sources | ST RM0008 Rev 21, especially Sections 9.3.9, 11.1.4, 13.3.7, and 26; DS5319 Rev 21; ES096 Rev 15, especially Sections 2.3.6-2.3.8 and 2.8.1-2.8.7 |
 | Doxygen publication status | `DEFERRED` — this mutable plan is not yet a reviewed canonical two-part peripheral guide |
@@ -107,8 +107,7 @@ API.
 
 ### Repository authorities
 
-- [`../../../CODING_PREFERENCES.md`](../../../CODING_PREFERENCES.md)
-- [`../DRIVER_STACK_TOP_DOWN_AUDIT.md`](../DRIVER_STACK_TOP_DOWN_AUDIT.md)
+- [`../../../AGENTS.md`](../../../AGENTS.md) (single authority: Part 1 Coding Preferences; Part 2 Driver Stack Top-Down Audit Method)
 - [`../DRIVER_DOCUMENTATION.md`](../DRIVER_DOCUMENTATION.md)
 - [`../USART/USART_ARCHITECTURE.md`](../USART/USART_ARCHITECTURE.md)
 - [`../Timer/TIMER_ARCHITECTURE.md`](../Timer/TIMER_ARCHITECTURE.md)
@@ -193,7 +192,7 @@ There is no Codec layer.
 
 | File | Intended responsibility | Disposition |
 | --- | --- | --- |
-| `Inc/i2c_data_types.h` | Scalar aliases, 7-bit address, sizes, error/event masks, transfer result | `PLANNED` new file with admitted consumers |
+| `Inc/i2c_data_types.h` | Scalar aliases, address type, sizes, error/event masks, transfer result | `PLANNED` new file with admitted consumers |
 | `Inc/i2c_defines.h` | Public selector values and pure validation macros | `PLANNED` new file with admitted consumers |
 | `Inc/i2c_config.h` | Instance-independent timing configuration structure | `PLANNED` replace commented legacy content |
 | `Inc/i2c.h`, `Src/i2c.c` | Public Driver contracts, validation, RCC verification/reset composition, configuration, bounded transactions, recovery | `PLANNED` retain names and replace content |
@@ -301,7 +300,7 @@ this branch scope.
 | `i2c_address_t` | `uint16_t` in `i2c.h` | `REPLACE` | Public accepted address is an unshifted 7-bit semantic alias. |
 | `i2c_slave_address_config_t` | `i2c.h`; no active caller | `DEFER` | Claims unsupported 10-bit dual-address combinations; OAR2 is seven-bit only. |
 | `i2c_mode_t`, `I2C_MODE_MASTER/SLAVE` | `i2c.h`; no active caller | `REMOVE/DEFER` | Hardware role is transaction/event state; first scope is controller only. |
-| `i2c_config_t` | `i2c.h`; consumed only by empty source definition | `REPLACE` | New config contains one coherent timing domain only. |
+| `i2c_config_t` | `i2c.h`; consumed only by empty source definition | `REPLACE` | New config contains timing domain (bus_speed_khz, fast_duty_ratio, disable_clock_stretching). |
 | `I2C_Config` | Definition only, implicit `int`, empty body | `KEEP NAME/REPLACE CONTRACT` | Canonical root configuration API returns `driver_status_t` and accepts pointer instance/config. |
 
 ### Guarded legacy Driver surface
@@ -346,34 +345,34 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
 
 driver_status_t I2C_MasterTransmit
 (
-	I2C_TypeDef* const			I2Cx,
-	const i2c_address_7bit_t	address,
-	const uint8_t* const		pData,
-	const i2c_transfer_size_t	size,
-	const uint32_t				pollBudget,
-	i2c_transfer_result_t* const	pResult
+	I2C_TypeDef* const           I2Cx,
+	const i2c_address_t          address,
+	const i2c_data_t* const      pData,
+	const i2c_transfer_size_t    size,
+	const uint32_t               timeout_ms,
+	i2c_transfer_result_t* const pResult
 );
 
 driver_status_t I2C_MasterReceive
 (
-	I2C_TypeDef* const			I2Cx,
-	const i2c_address_7bit_t	address,
-	uint8_t* const				pData,
-	const i2c_transfer_size_t	size,
-	const uint32_t				pollBudget,
-	i2c_transfer_result_t* const	pResult
+	I2C_TypeDef* const           I2Cx,
+	const i2c_address_t          address,
+	i2c_data_t* const            pData,
+	const i2c_transfer_size_t    size,
+	const uint32_t               timeout_ms,
+	i2c_transfer_result_t* const pResult
 );
 
 driver_status_t I2C_MasterWriteRead
 (
-	I2C_TypeDef* const			I2Cx,
-	const i2c_address_7bit_t	address,
-	const uint8_t* const		pWriteData,
-	const i2c_transfer_size_t	writeSize,
-	uint8_t* const				pReadData,
-	const i2c_transfer_size_t	readSize,
-	const uint32_t				pollBudget,
-	i2c_transfer_result_t* const	pResult
+	I2C_TypeDef* const           I2Cx,
+	const i2c_address_t          address,
+	const i2c_data_t* const      pWriteData,
+	const i2c_transfer_size_t    writeSize,
+	i2c_data_t* const            pReadData,
+	const i2c_transfer_size_t    readSize,
+	const uint32_t               timeout_ms,
+	i2c_transfer_result_t* const pResult
 );
 ```
 
@@ -382,15 +381,15 @@ Contract rules:
 - `I2Cx` is exactly `I2C1` or `I2C2`.
 - `address` is the unshifted seven-bit value `0x08U..0x77U`; Codec inserts the
   R/W bit. Reserved addresses are rejected.
-- Transfer sizes and `pollBudget` are nonzero. Buffer/result pointers are
+- Transfer sizes and `timeout_ms` are nonzero. Buffer/result pointers are
   non-`NULL`. Zero-byte transfers are rejected rather than interpreted as a
   quick command.
 - Configuration/lifecycle APIs require the application-owned APB1 clock gate.
   Configuration requires `PE=0` and a free bus and leaves `PE=0`.
 - Transfer APIs require `PE=1`, a legal configured I2C timing image, no
   concurrent owner, and a free bus before a fresh START.
-- `pollBudget` is one transaction-wide maximum count. Each hardware sample
-  consumes budget; it is not reset per byte, so work remains globally bounded.
+- `timeout_ms` is a transaction-wide timeout in milliseconds. Each hardware
+  sample consumes time; it is not reset per byte, so work remains globally bounded.
 - `pResult` is unchanged on preflight failure. After START is requested it is
   published on every return with exact typed failure and completed TX/RX byte
   counts. `DRIVER_STATUS_ERROR_FAIL` therefore never hides the hardware cause.
@@ -416,8 +415,10 @@ may be included for diagnostics but does not replace the semantic error.
 
 `i2c_config_t` contains one coherent timing domain:
 
-- `bus_speed`: admitted presets `88 kHz`, `100 kHz`, and `400 kHz`;
-- `fast_mode_duty`: `2:1` or `16:9`, meaningful only for `400 kHz`.
+- `bus_speed_khz`: admitted presets `88`, `100`, and `400` (kHz);
+- `fast_duty_ratio`: `2` (2:1) or `16` (16:9), meaningful only for `400` kHz;
+- `disable_clock_stretching`: `0` (enable) or `1` (disable), allows master to
+  prevent slave clock stretching.
 
 The 88 kHz preset is the portable Standard-mode choice for repeated START on
 affected silicon. The 100 kHz preset remains valid for ordinary transfers and
@@ -432,9 +433,9 @@ Configuration order:
 3. Require `PE=0`, no pending START/STOP, and `BUSY=0` before the first write.
 4. Snapshot CR1, CR2, CCR, and TRISE exactly once.
 5. Stage a master-I2C baseline (`SMBUS=0`, `ACK=1`, `POS=0`) and timing into
-   local images. Preserve CR2 IRQ/DMA source fields because they are separate
-   explicit domains; reject incompatible deferred CR1 state instead of
-   silently preserving it.
+   local images, including clock stretching control from `disable_clock_stretching`.
+   Preserve CR2 IRQ/DMA source fields because they are separate explicit domains;
+   reject incompatible deferred CR1 state instead of silently preserving it.
 6. Commit dirty CR2, CCR, TRISE, then CR1 while disabled.
 7. Leave `PE=0`; the application explicitly enables operation afterward.
 
@@ -449,12 +450,12 @@ Standard mode:
   CCR = ceil(CCR_exact), clamped only by validation to 4..4095
   TRISE = FREQ_MHz + 1
 
-Fast mode, DUTY=0 (Tlow/Thigh = 2):
+Fast mode, fast_duty_ratio = 2 (Tlow/Thigh = 2:1):
   CCR_exact = PCLK1_Hz / (3 * SCL_Hz)
   CCR = ceil(CCR_exact), valid 4..4095
   TRISE = floor((FREQ_MHz * 300 ns) / 1000 ns) + 1
 
-Fast mode, DUTY=1 (Tlow/Thigh = 16/9):
+Fast mode, fast_duty_ratio = 16 (Tlow/Thigh = 16:9):
   CCR_exact = PCLK1_Hz / (25 * SCL_Hz)
   CCR = ceil(CCR_exact), valid 1..4095
   TRISE = floor((FREQ_MHz * 300 ns) / 1000 ns) + 1

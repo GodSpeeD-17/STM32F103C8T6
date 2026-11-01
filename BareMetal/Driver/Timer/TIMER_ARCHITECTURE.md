@@ -2,7 +2,7 @@
 
 > **Status — historical implementation snapshot.** The normative planning,
 > API-admission, ownership, safety-mitigation, and completion-gate authority is
-> [`../DRIVER_STACK_TOP_DOWN_AUDIT.md`](../DRIVER_STACK_TOP_DOWN_AUDIT.md).
+> [`../../../AGENTS.md`](../../../AGENTS.md) (Part 2: Driver Stack Top-Down Audit Method).
 > Where this checkpoint treats every Timer register as an ordinary
 > reader/writer pair or calls update sequencing complete, the top-down audit
 > supersedes it. Update both files in the same implementation wave when the
