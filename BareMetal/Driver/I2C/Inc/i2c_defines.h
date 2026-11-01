@@ -10,12 +10,14 @@
  * internally by the Driver for validation.
  */
 
+// Header Guards
 #ifndef I2C_DEFINES_H_
 #define I2C_DEFINES_H_
 
 // Includes
 #include "i2c_data_types.h"
 
+// C++ Compatibility
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -42,23 +44,20 @@ extern "C" {
  * @{
  */
 
+/** @brief I2C - Standard Mode (100kHz) @def I2C_SPEED_STANDARD_MODE */
+#define I2C_SPEED_STANDARD_MODE				((frequency_t) 100U * FREQ_1kHz)
+/** @brief I2C - Fast mode (400kHz) @def I2C_SPEED_FAST_MODE */
+#define I2C_SPEED_FAST_MODE					((frequency_t) 400U * FREQ_1kHz)
 /**
- * @brief I2C speed preset enumeration
- * @typedef i2c_speed_preset_t
- * @details
- * Admitted bus speed presets for I2C configuration. The 88 kHz preset
- * is ES096-safe for repeated START in Standard mode. The 100 kHz preset
- * is valid for ordinary transfers but not for combined write-then-read
- * operations in Standard mode.
+ * @brief Validate an I2C bus speed
+ * @def I2C_IS_VALID_SPEED
+ * @param[in] speed I2C Bus Speed
+ * @returns I2C Speed Validation Result
+ * @retval - `0x00U`: Speed Invalid
+ * @retval - `0x01U`: Speed Valid
  */
-typedef uint8_t						i2c_speed_preset_t;
-
-/** @brief 88 kHz Standard mode (ES096-safe for repeated START) @def I2C_SPEED_PRESET_88_KHZ */
-#define I2C_SPEED_PRESET_88_KHZ			((i2c_speed_preset_t) 0U)
-/** @brief 100 kHz Standard mode (ordinary transfers only) @def I2C_SPEED_PRESET_100_KHZ */
-#define I2C_SPEED_PRESET_100_KHZ			((i2c_speed_preset_t) 1U)
-/** @brief 400 kHz Fast mode @def I2C_SPEED_PRESET_400_KHZ */
-#define I2C_SPEED_PRESET_400_KHZ			((i2c_speed_preset_t) 2U)
+#define I2C_IS_VALID_SPEED(speed)			\
+	((speed) == I2C_SPEED_STANDARD_MODE || (speed) == I2C_SPEED_FAST_MODE)
 
 /** @} */ // I2C_02_Defines_01_SpeedPresets
 
@@ -68,7 +67,7 @@ typedef uint8_t						i2c_speed_preset_t;
  * @brief Fast mode duty cycle selection
  * @details
  * Controls the SCL low/high period ratio in Fast mode. Meaningful only
- * when the speed preset is I2C_SPEED_PRESET_400_KHZ.
+ * when the speed preset is I2C_SPEED_FAST_MODE.
  * @{
  */
 
@@ -80,12 +79,21 @@ typedef uint8_t						i2c_speed_preset_t;
  * relationship affects rise-time margin and pull-up requirements per
  * RM0008 Section 26.4.7.
  */
-typedef uint8_t						i2c_fast_duty_t;
-
+typedef uint8_t								i2c_fast_duty_t;
 /** @brief DUTY=0: Tlow/Thigh = 2/1 (CCR = PCLK1 / (3 * FSCL)) @def I2C_FAST_DUTY_2_1 */
-#define I2C_FAST_DUTY_2_1			((i2c_fast_duty_t) 0U)
+#define I2C_FAST_DUTY_2_1					((i2c_fast_duty_t) 0U)
 /** @brief DUTY=1: Tlow/Thigh = 16/9 (CCR = PCLK1 / (25 * FSCL)) @def I2C_FAST_DUTY_16_9 */
-#define I2C_FAST_DUTY_16_9			((i2c_fast_duty_t) 1U)
+#define I2C_FAST_DUTY_16_9					((i2c_fast_duty_t) 1U)
+/**
+ * @brief Validate an I2C fast mode duty cycle
+ * @def I2C_IS_VALID_FAST_DUTY
+ * @param[in] duty I2C Fast Mode Duty Cycle
+ * @returns I2C Fast Mode Duty Cycle Validation Result
+ * @retval - `0x00U`: Duty Cycle Invalid
+ * @retval - `0x01U`: Duty Cycle Valid
+ */
+#define I2C_IS_VALID_FAST_DUTY(duty)		\
+	((duty) == I2C_FAST_DUTY_2_1 || (duty) == I2C_FAST_DUTY_16_9)
 
 /** @} */ // I2C_02_Defines_02_FastDuty
 
@@ -101,107 +109,21 @@ typedef uint8_t						i2c_fast_duty_t;
  */
 
 /**
- * @def I2C_IS_VALID_7BIT_ADDRESS(addr)
- * @brief Validate a 7-bit I2C address
- * @param addr Address to validate (i2c_address_7bit_t)
- * @details
- * Returns true if the address is in the valid range 0x08..0x77.
- * Reserved addresses 0x00..0x07 and 0x78..0x7F are rejected.
- */
-#define I2C_IS_VALID_7BIT_ADDRESS(addr) \
-	(((addr) >= 0x08U) && ((addr) <= 0x77U))
-
-/**
- * @def I2C_IS_RESERVED_ADDRESS(addr)
- * @brief Check if an address is reserved
- * @param addr Address to check (i2c_address_7bit_t)
- * @details
- * Returns true if the address is in the reserved range 0x00..0x07
- * or 0x78..0x7F. Reserved addresses include general call (0x00),
- * CBUS addresses (0x01..0x02), and other reserved ranges.
- */
-#define I2C_IS_RESERVED_ADDRESS(addr) \
-	(((addr) <= 0x07U) || ((addr) >= 0x78U))
-
-/**
- * @def I2C_IS_VALID_TRANSFER_SIZE(size)
- * @brief Validate a transfer size
- * @param size Size to validate (i2c_transfer_size_t)
- * @details
- * Returns true if the size is non-zero. Zero-byte transfers are
- * rejected by the Driver as they have no defined protocol meaning.
- */
-#define I2C_IS_VALID_TRANSFER_SIZE(size) \
-	((size) > 0U)
-
-/**
- * @def I2C_IS_VALID_POLL_BUDGET(budget)
- * @brief Validate a poll budget
- * @param budget Budget to validate (uint32_t)
- * @details
- * Returns true if the budget is non-zero. A zero poll budget would
- * cause immediate timeout and is rejected by the Driver.
- */
-#define I2C_IS_VALID_POLL_BUDGET(budget) \
-	((budget) > 0U)
-
-/**
- * @def I2C_IS_VALID_SPEED_PRESET(preset)
- * @brief Validate a speed preset
- * @param preset Preset to validate (i2c_speed_preset_t)
- * @details
- * Returns true if the preset is one of the admitted values.
- */
-#define I2C_IS_VALID_SPEED_PRESET(preset) \
-	(((preset) == I2C_SPEED_PRESET_88_KHZ) || \
-	 ((preset) == I2C_SPEED_PRESET_100_KHZ) || \
-	 ((preset) == I2C_SPEED_PRESET_400_KHZ))
-
-/**
- * @def I2C_IS_VALID_FAST_DUTY(duty)
- * @brief Validate a fast mode duty cycle
- * @param duty Duty to validate (i2c_fast_duty_t)
- * @details
- * Returns true if the duty is one of the admitted values.
- */
-#define I2C_IS_VALID_FAST_DUTY(duty) \
-	(((duty) == I2C_FAST_DUTY_2_1) || \
-	 ((duty) == I2C_FAST_DUTY_16_9))
-
-/**
- * @def I2C_IS_INSTANCE_I2C1(I2Cx)
- * @brief Check if a pointer is I2C1
- * @param I2Cx Peripheral pointer to check
- * @details
- * Returns true if the pointer matches I2C1 base address.
- */
-#define I2C_IS_INSTANCE_I2C1(I2Cx) \
-	((I2Cx) == I2C1)
-
-/**
- * @def I2C_IS_INSTANCE_I2C2(I2Cx)
- * @brief Check if a pointer is I2C2
- * @param I2Cx Peripheral pointer to check
- * @details
- * Returns true if the pointer matches I2C2 base address.
- */
-#define I2C_IS_INSTANCE_I2C2(I2Cx) \
-	((I2Cx) == I2C2)
-
-/**
- * @def I2C_IS_VALID_INSTANCE(I2Cx)
+ * @def I2C_IS_VALID_INSTANCE
  * @brief Validate an I2C instance pointer
- * @param I2Cx Peripheral pointer to validate
- * @details
- * Returns true if the pointer is either I2C1 or I2C2.
+ * @param[in] I2Cx Peripheral pointer to validate
+ * @returns I2C Instance Validation Result
+ * @retval - `0x00U`: Instance Invalid
+ * @retval - `0x01U`: Instance Valid
  */
-#define I2C_IS_VALID_INSTANCE(I2Cx) \
-	(I2C_IS_INSTANCE_I2C1(I2Cx) || I2C_IS_INSTANCE_I2C2(I2Cx))
+#define I2C_IS_VALID_INSTANCE(I2Cx)		\
+	(((I2Cx) == I2C1) || ((I2Cx) == I2C2))
 
 /** @} */ // I2C_02_Defines_03_Validation
 
 /** @} */ // I2C_02_Defines
 
+// C++ Compatibility
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

@@ -69,25 +69,16 @@
 // I2C Operation State Codec
 // ==================================================================================================== //
 
-driver_status_t Codec_I2C_ExtractOperationState(const reg cr1RegImage, driver_status_t* const pOperationState)
+driver_status_t Codec_I2C_ExtractOperationState(const reg cr1RegImage)
 {
-	// Validate Output Pointer
-	if (pOperationState == NULL)
-	{
-		return DRIVER_STATUS_ERROR_NULL_PTR;
-	}
-
-	// Extract PE bit
+	//! Extract PE bit
 	if ((cr1RegImage & I2C_CR1_PE) != 0x00000000UL)
 	{
-		*pOperationState = DRIVER_STATUS_ON;
+		return DRIVER_STATUS_ON;
 	}
-	else
-	{
-		*pOperationState = DRIVER_STATUS_OFF;
-	}
-
-	return DRIVER_STATUS_SUCCESS;
+	
+	//! PE bit is not set
+	return DRIVER_STATUS_OFF;
 }
 
 driver_status_t Codec_I2C_StageOperationState(reg* const pCr1RegImage, const driver_status_t operationState)
@@ -103,7 +94,7 @@ driver_status_t Codec_I2C_StageOperationState(reg* const pCr1RegImage, const dri
 	{
 		*pCr1RegImage |= I2C_CR1_PE;
 	}
-	else
+	else if (operationState == DRIVER_STATUS_OFF)
 	{
 		*pCr1RegImage &= ~I2C_CR1_PE;
 	}
@@ -429,4 +420,26 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
 	*pWriteImage = sr1Snapshot & ~errorsToClear;
 
 	return DRIVER_STATUS_SUCCESS;
+}
+
+driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage)
+{
+	//! Is Start Bit Flag Set?
+	if ((sr1RegImage & I2C_SR1_SB) != 0U)
+	{
+		return DRIVER_STATUS_SUCCESS;
+	}
+
+	return DRIVER_STATUS_ERROR;
+}
+
+driver_status_t Codec_I2C_IsBusBusy(const reg sr2RegImage)
+{
+	//! Is Bus Busy Flag Set?
+	if ((sr2RegImage & I2C_SR2_BUSY) != 0U)
+	{
+		return DRIVER_STATUS_SUCCESS;
+	}
+
+	return DRIVER_STATUS_ERROR;
 }

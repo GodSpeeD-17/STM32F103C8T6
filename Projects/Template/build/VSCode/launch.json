@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: Template",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "device": "STM32F103C8",
+      "executable": "/home/shrey_shah/STM32F103C8T6/Projects/Template/build/Artifacts/Template.elf",
+      "configFiles": [
+        "/home/shrey_shah/STM32F103C8T6/BareMetal/Core/Src/stlink.cfg",
+        "/home/shrey_shah/STM32F103C8T6/BareMetal/Core/Src/stm32f1x.cfg"
+      ],
+      "svdFile": "/home/shrey_shah/STM32F103C8T6/BareMetal/Core/Src/stm32f103c8t6.svd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "Build Project",
+      "postLaunchCommands": [
+        "monitor reset init",
+        "load",
+        "monitor reset halt"
+      ]
+    }
+  ]
+}

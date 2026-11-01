@@ -1,0 +1,7 @@
+{
+  "C_Cpp.default.compileCommands": "/home/shrey_shah/STM32F103C8T6/Projects/Template/build/compile_commands.json",
+  "cortex-debug.gdbPath": "/usr/bin/gdb-multiarch",
+  "cortex-debug.openocdPath": "/usr/bin/openocd",
+  "cortex-debug.stutilPath": "/usr/bin/st-util",
+  "cortex-debug.variableUseNaturalFormat": true
+}

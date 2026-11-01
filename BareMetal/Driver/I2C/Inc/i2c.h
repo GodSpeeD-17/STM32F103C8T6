@@ -20,7 +20,7 @@
 // Includes
 // ==================================================================================================== //
 #include "stm32f1xx.h"
-#include "i2c_config.h"
+#include "i2c_defines.h"
 
 // C++ Compatibility
 #ifdef __cplusplus
@@ -38,6 +38,118 @@ extern "C" {
  * routing remain explicit prerequisites.
  * @{
  */
+
+/**
+ * @defgroup I2C_02_Config I2C Configuration Structure
+ * @ingroup I2C
+ * @brief Instance-independent timing configuration
+ * @details
+ * Timing configuration structure for I2C peripheral initialization.
+ * Contains bus speed preset and fast mode duty cycle selection.
+ * @{
+ */
+
+/**
+ * @brief I2C timing configuration structure
+ * @typedef i2c_config_t
+ * @details
+ * Instance-independent timing configuration for I2C peripheral.
+ * The Driver uses this structure to compute CR2.FREQ, CCR, and TRISE
+ * register values based on the live APB1 clock frequency.
+ *
+ * **Speed Presets:**
+ * - 88 kHz: ES096-safe Standard mode for repeated START
+ * - 100 kHz: Standard mode for ordinary transfers
+ * - 400 kHz: Fast mode (requires duty cycle selection)
+ *
+ * **Fast Mode Duty Cycle:**
+ * - 2:1: Tlow/Thigh = 2/1 (DUTY=0, CCR = PCLK1 / (3 * FSCL))
+ * - 16:9: Tlow/Thigh = 16/9 (DUTY=1, CCR = PCLK1 / (25 * FSCL))
+ *
+ * The 88 kHz preset is the portable Standard-mode choice for combined
+ * write-then-read operations on silicon affected by ES096 2.8.5.
+ * The 100 kHz preset is valid for ordinary single-phase transfers but
+ * is rejected for combined operations in Standard mode above 88 kHz.
+ *
+ * @note Configuration requires PE=0 and a free bus. The APB1 clock
+ *       must be enabled by the application before calling I2C_Config.
+ * @see I2C_ARCHITECTURE.md Section "Configuration Model" for timing equations
+ */
+typedef struct
+{
+	/**
+	 * @brief Bus speed preset
+	 * @details
+	 * Selects the target SCL frequency. The Driver computes CR2.FREQ,
+	 * CCR, and TRISE values based on this preset and the live APB1 clock.
+	 */
+	frequency_t			bus_speed;
+
+	/**
+	 * @brief Fast mode duty cycle
+	 * @details
+	 * Meaningful only when bus_speed is I2C_SPEED_PRESET_400_KHZ.
+	 * Selects the SCL low/high period ratio in Fast mode.
+	 */
+	i2c_fast_duty_t		fast_mode_duty;
+} i2c_config_t;
+
+/** @} */ // I2C_02_Config
+
+// ==================================================================================================== //
+// I2C Root Configuration APIs
+// ==================================================================================================== //
+
+/**
+ * @brief Configures the supported controller timing baseline for one I2C instance
+ * @details
+ * Validates and stages the complete timing domain from @ref i2c_config_t using
+ * the live APB1 frequency, then commits CR2, CCR, TRISE, and CR1 while the
+ * peripheral remains disabled. The driver neither changes RCC gating nor
+ * GPIO/AFIO routing, and leaves `I2Cx_CR1.PE` cleared on success.
+ *
+ * @param[in] I2Cx I2C peripheral instance
+ * Accepted values:
+ * - `I2C1`
+ * - `I2C2`
+ * @param[in] pConfig Complete supported I2C timing configuration
+ * Expected values:
+ * - Non-`NULL`: Timing configuration is read from @p `pConfig`
+ * - `i2c_config_t::bus_speed`: An admitted I2C bus-speed preset
+ * - `i2c_config_t::fast_mode_duty`: An admitted Fast-mode duty selector
+ * @returns @ref driver_status_t "I2C root-configuration operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Supported I2C timing configuration was applied
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pConfig` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported or a configuration selector was invalid
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled, PCLK1 is unsupported, or I2C is not disabled and idle
+ * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The I2C bus is busy
+ * @pre The application enabled the matching APB1 clock gate through the RCC driver
+ * @pre `I2Cx_CR1.PE` is cleared and no START or STOP action is pending
+ * @note Deferred IRQ, DMA, GPIO/AFIO, and NVIC domains are not configured by this API
+ */
+driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
+
+/**
+ * @brief Restores one supported I2C register bank to its hardware reset state
+ * @details
+ * Requires the matching APB1 clock gate to already be enabled, then pulses the
+ * matching RCC peripheral-reset bit. This resets the complete I2C register
+ * bank without changing application-owned RCC clock-gate, GPIO/AFIO, or NVIC
+ * state.
+ *
+ * @param[in] I2Cx I2C peripheral instance
+ * Accepted values:
+ * - `I2C1`
+ * - `I2C2`
+ * @returns @ref driver_status_t "I2C root-deconfiguration operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: I2C register state was reset
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The matching APB1 clock gate is disabled
+ * @pre The application enabled the matching APB1 clock gate through the RCC driver
+ * @note The APB1 clock gate, GPIO/AFIO route, and NVIC delivery retain their application-owned states
+ */
+driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx);
 
 // ==================================================================================================== //
 // I2C Operation State APIs
@@ -89,61 +201,6 @@ driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx);
  * @pre The application owns the complete I2C transaction
  */
 driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_status_t operationState);
-
-// ==================================================================================================== //
-// I2C Root Configuration APIs
-// ==================================================================================================== //
-
-/**
- * @brief Restores one supported I2C register bank to its hardware reset state
- * @details
- * Requires the matching APB1 clock gate to already be enabled, then pulses the
- * matching RCC peripheral-reset bit. This resets the complete I2C register
- * bank without changing application-owned RCC clock-gate, GPIO/AFIO, or NVIC
- * state.
- *
- * @param[in] I2Cx I2C peripheral instance
- * Accepted values:
- * - `I2C1`
- * - `I2C2`
- * @returns @ref driver_status_t "I2C root-deconfiguration operation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: I2C register state was reset
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` was `NULL`
- * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported
- * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The matching APB1 clock gate is disabled
- * @pre The application enabled the matching APB1 clock gate through the RCC driver
- * @note The APB1 clock gate, GPIO/AFIO route, and NVIC delivery retain their application-owned states
- */
-driver_status_t I2C_Init(I2C_TypeDef* const I2Cx);
-
-/**
- * @brief Configures the supported controller timing baseline for one I2C instance
- * @details
- * Validates and stages the complete timing domain from @ref i2c_config_t using
- * the live APB1 frequency, then commits CR2, CCR, TRISE, and CR1 while the
- * peripheral remains disabled. The driver neither changes RCC gating nor
- * GPIO/AFIO routing, and leaves `I2Cx_CR1.PE` cleared on success.
- *
- * @param[in] I2Cx I2C peripheral instance
- * Accepted values:
- * - `I2C1`
- * - `I2C2`
- * @param[in] pConfig Complete supported I2C timing configuration
- * Expected values:
- * - Non-`NULL`: Timing configuration is read from @p `pConfig`
- * - `i2c_config_t::bus_speed`: An admitted I2C bus-speed preset
- * - `i2c_config_t::fast_mode_duty`: An admitted Fast-mode duty selector
- * @returns @ref driver_status_t "I2C root-configuration operation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: Supported I2C timing configuration was applied
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pConfig` was `NULL`
- * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported or a configuration selector was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled, PCLK1 is unsupported, or I2C is not disabled and idle
- * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The I2C bus is busy
- * @pre The application enabled the matching APB1 clock gate through the RCC driver
- * @pre `I2Cx_CR1.PE` is cleared and no START or STOP action is pending
- * @note Deferred IRQ, DMA, GPIO/AFIO, and NVIC domains are not configured by this API
- */
-driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
 
 // ==================================================================================================== //
 // I2C Controller Transfer APIs
@@ -242,6 +299,7 @@ driver_status_t I2C_MasterReceive
 
 /** @} */ // I2C_03_Driver
 
+// C++ Compatibility
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

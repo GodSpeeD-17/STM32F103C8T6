@@ -1,201 +1,269 @@
-// Header File Includes
+/**
+ * @file i2c.c
+ * @author Shrey Shah
+ * @brief I2C Driver Implementation
+ * @version v1.0
+ * @date 28-08-2026
+ * @details
+ * Implements the contract-frozen I2C Driver surface for STM32F103C8T6
+ * I2C1/I2C2.
+ */
+
+// ==================================================================================================== //
+// Includes
+// ==================================================================================================== //
 #include "i2c.h"
+#include "i2c_codec.h"
+#include "i2c_ll.h"
+#include "rcc.h"
 
-I2C_Config(i2c_t I2Cx, i2c_config_t* const config)
+/** @brief Poll budget per millisecond for I2C driver operations @def I2C_DRIVER_POLL_BUDGET_PER_MS */
+#define I2C_DRIVER_POLL_BUDGET_PER_MS		((uint32_t) 100UL)
+
+/**
+ * @brief Generates a START condition on the I2C bus
+ * @details
+ * Stages a START condition in the I2C control register and waits for the start
+ * condition to be detected. The function polls the status register until the
+ * start condition is detected or the timeout expires.
+ *
+ * @param[in] I2Cx			I2C peripheral instance
+ * @param[in] timeout_ms	Timeout in milliseconds
+ * @returns @ref driver_status_t "I2C start generation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: START condition was generated successfully
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: Timeout occurred while waiting for start condition
+ */
+__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, const uint32_t timeout_ms)
 {
+	reg cr1RegImage = 0x00000000UL;
+	uint32_t pollBudget = (timeout_ms * I2C_DRIVER_POLL_BUDGET_PER_MS);
+
+	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
+	ASSERT_DRIVER_STATUS(Codec_I2C_StageStart(&cr1RegImage));
+	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
+
+	while (Codec_I2C_IsStartCondition(LL_I2C_ReadSR1(I2Cx)) != DRIVER_STATUS_SUCCESS)
+	{
+		if (pollBudget == 0U)
+		{
+			return DRIVER_STATUS_ERROR_TIMEOUT;
+		}
+		pollBudget--;
+	}
+
+	return DRIVER_STATUS_SUCCESS;
+}
+
+/**
+ * @brief Generates a STOP condition on the I2C bus
+ * @details
+ * Stages a STOP condition in the I2C control register and waits for the bus
+ * to become idle. The function polls the status register until the bus is
+ * no longer busy or the timeout expires.
+ * @param[in] I2Cx			I2C peripheral instance
+ * @param[in] timeout_ms	Timeout in milliseconds
+ * @returns @ref driver_status_t "I2C stop generation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP condition was generated successfully
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: Timeout occurred while waiting for bus idle
+ */
+__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, const uint32_t timeout_ms)
+{
+	reg cr1RegImage = 0x00000000UL;
+	uint32_t pollBudget = (timeout_ms * I2C_DRIVER_POLL_BUDGET_PER_MS);
+
+	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
+	ASSERT_DRIVER_STATUS(Codec_I2C_StageStop(&cr1RegImage));
+	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
+
+	while (Codec_I2C_IsBusBusy(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS)
+	{
+		if (pollBudget == 0U)
+		{
+			return DRIVER_STATUS_ERROR_TIMEOUT;
+		}
+		pollBudget--;
+	}
+
+	return DRIVER_STATUS_SUCCESS;
+}
+
+// ==================================================================================================== //
+// I2C Driver Topology Helpers
+// ==================================================================================================== //
+
+/**
+ * @brief Gets the APB1 clock enable mask for an I2C peripheral
+ * @details
+ * Returns the appropriate RCC clock enable bit mask for the given I2C peripheral.
+ * This function maps I2C1 and I2C2 to their respective RCC enable bits.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected Values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @returns RCC clock enable mask for the specified I2C peripheral
+ * @note - Does not validate if input is NULL pointer because it is static funtion
+ * @note - Returns `0x00UL` in case @p `I2Cx` is not within expected range
+ */
+static reg _I2C_GetAPB1ClockEnableMask(const I2C_TypeDef* const I2Cx)
+{
+	reg clockMask = 0x00000000UL;
+
+	switch ((uintptr_t) I2Cx)
+	{
+		case (uintptr_t) I2C1:
+		{
+			clockMask = RCC_APB1ENR_I2C1EN;
+			break;
+		}
+		case (uintptr_t) I2C2:
+		{
+			clockMask = RCC_APB1ENR_I2C2EN;
+			break;
+		}
+		default:
+		{
+			clockMask = 0x00000000UL;
+			break;
+		}
+	}
+
+	return clockMask;
+}
+
+/**
+ * @brief Gets the APB1 peripheral reset mask for an I2C peripheral
+ * @details
+ * Returns the appropriate RCC peripheral reset bit mask for the given I2C peripheral.
+ * This function maps I2C1 and I2C2 to their respective RCC reset bits.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected Values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @returns RCC peripheral reset mask for the specified I2C peripheral
+ * @note - Does not validate if input is NULL pointer because it is static funtion
+ * @note - Returns `0x00UL` in case @p `I2Cx` is not within expected range
+ */
+static reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
+{
+	reg resetMask = 0x00000000UL;
+
+	switch ((uintptr_t) I2Cx)
+	{
+		case (uintptr_t) I2C1:
+		{
+			resetMask = RCC_APB1RSTR_I2C1RST;
+			break;
+		}
+		case (uintptr_t) I2C2:
+		{
+			resetMask = RCC_APB1RSTR_I2C2RST;
+			break;
+		}
+		default:
+		{
+			resetMask = 0x00000000UL;
+			break;
+		}
+	}
+
+	return resetMask;
+}
+
+driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx)
+{
+	//! Validate Input
+	if(I2Cx == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+	//! Validate the range for input parameters
+	if (I2C_IS_VALID_INSTANCE(I2Cx) == 0U)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
+	//! Extract the Operation State
+	return Codec_I2C_ExtractOperationState(LL_I2C_ReadCR1(I2Cx));
+
+}
+
+driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_status_t operationState)
+{
+	// Local Variable
+	reg cr1 = 0x00UL;
 	
-}
-
-#if 0
-
-// Static Variable for Memory Efficiency
-static uint32_t temp = 0x00;
-
-/**
- * @brief I2C Master Write Start Sequence
- * @param I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param slaveAddress Target I2C Slave Address
- * @note Does not generate STOP condition, use `I2C_sendStop()` after writing data
- */
-void I2C_Master_Write_Start(I2C_TypeDef* I2Cx, uint8_t slaveAddress){
-	// Local Variable
-	temp = 0x00;
-	// Start Sequence
-	I2C_sendStart(I2Cx);
-	// Wait for Start condition (EV5)
-	while(!(I2Cx->SR1.REG & I2C_SR1_SB));
-	// Send Slave Address with Write Privilege
-	I2C_writeAddress(I2Cx, slaveAddress);
-	// Wait for ADDR flag (EV6)
-	while(!(I2Cx->SR1.REG & I2C_SR1_ADDR));
-	// Clear ADDR flag by reading SR1
-	temp = I2Cx->SR1.REG;
-	// Clear ADDR flag by reading SR2
-	temp = I2Cx->SR2.REG;
-	// Wait for TXE flag (EV8_1)
-	while(!(I2Cx->SR1.REG & I2C_SR1_TXE));
-}
-
-/**
- * @brief I2C Master Write Start Sequence
- * @param I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param slaveAddress Target I2C Slave Address
- * @param registerAddress Target Register Address
- * @note Does not generate STOP condition, use `I2C_sendStop()` after writing data
- */
-void I2C_Master_Write_Start_Reg(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress){
-	// Start Sequence
-	I2C_Master_Write_Start(I2Cx, slaveAddress);
-	// Write Register Address
-	I2C_writeByte(I2Cx, registerAddress);
-	// Wait for TXE and BTF flags (EV8_2)
-	while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	// Clearing BTF
-	temp = I2Cx->SR1.REG;
-}
-
-/**
- * @brief I2C Master Read Start Sequence
- * @param I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param slaveAddress Target I2C Slave Address
- * @param registerAddress Target Register Address
- * @note Does not generate STOP condition, use `I2C_sendStop()` after reading data
- */
-void I2C_Master_Read_Start(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress){
-	// Local Variable
-	temp = 0x00;
-	// I2C Master Write Start Sequence
-	I2C_Master_Write_Start_Reg(I2Cx, slaveAddress, registerAddress);
-	// Repeated START Condition (Switch to Read Mode)
-	I2C_sendStart(I2Cx);
-	// Wait for Start condition (EV5)
-	while (!(I2Cx->SR1.REG & I2C_SR1_SB));
-	// Send Slave Address with Read Privilege
-	I2C_readAddress(I2Cx, slaveAddress);
-	// Send Slave Address with Write Privilege
-	I2C_readAddress(I2Cx, slaveAddress);
-	// Wait for ADDR flag (EV6)
-	while(!(I2Cx->SR1.REG & I2C_SR1_ADDR));
-	// Clear ADDR flag by reading SR1
-	temp = I2Cx->SR1.REG;
-	// Clear ADDR flag by reading SR2
-	temp = I2Cx->SR2.REG;
-}
-
-/**
- * @brief I2C Master Stop Sequence
- * @param I2Cx I2C Instance: `I2C1`, `I2C2`
- */
-void I2C_Master_Stop(I2C_TypeDef* I2Cx){
-	// Generate STOP condition
-	I2C_sendStop(I2Cx);
-	// Wait until STOP condition is generated
-	while(!(I2C_busReady(I2Cx)));
-}
-
-/**
- * @brief I2C Master Write Buffer Data
- * @param I2Cx I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param buffer Pointer to buffer to be transmitted
- * @param buff_len Length of data in buffer to be transmitted
- */
-void I2C_Master_Write_Data(I2C_TypeDef* I2Cx, uint8_t* buffer, uint16_t buff_len){
-	// Write Multiple Bytes
-	for (uint8_t i = 0; i < buff_len; i++) {
-		// Write Data Byte
-		I2C_writeByte(I2Cx, buffer[i]);
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
+	//! Validate Input
+	if(I2Cx == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
-}
-
-/**
- * @brief Writes a Single Byte to Register Address of a given Slave Address
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] slave_address MAX30102 Slave Address
- * @param[in] register Register Address
- * @param[in] byte Data to be written
- */
-void I2C_Write_Reg_Byte(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress, uint8_t byte){
-	// I2C Master Write Start Sequence
-	I2C_Master_Write_Start_Reg(I2Cx, slaveAddress, registerAddress);
-	// Write Data Byte
-	I2C_writeByte(I2Cx, byte);
-	// Wait for TXE and BTF flags (EV8_2)
-	while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	// I2C Master Stop Sequence
-	I2C_Master_Stop(I2Cx);
-}
-
-/**
- * @brief Writes Multiple Consecutive Bytes to Register Address of a given Slave Address
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] slaveAddress Slave Address
- * @param[in] registerAddress Starting Register Address
- * @param[in] data Pointer to the data buffer
- * @param[in] len Number of bytes to write
- */
-void I2C_Write_Reg_Block(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress, uint8_t* data, uint8_t len){
-	// I2C Master Write Start Sequence
-	I2C_Master_Write_Start_Reg(I2Cx, slaveAddress, registerAddress);
-	// Write Multiple Bytes
-	for (uint8_t i = 0; i < len; i++) {
-		// Write Data Byte
-		I2C_writeByte(I2Cx, data[i]);
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
+	//! Validate the range for input parameters
+	if (I2C_IS_VALID_INSTANCE(I2Cx) == 0U)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
-	// I2C Master Stop Sequence
-	I2C_Master_Stop(I2Cx);
-}
-
-/**
- * @brief Reads a Single Byte from a Register Address of a given Slave Address
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] slaveAddress Slave Address
- * @param[in] registerAddress Register Address to read from
- * @returns The read byte
- */
-uint8_t I2C_Read_Reg_Byte(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress){
-	// Local Variable
-	uint8_t data = 0x00;
-	// I2C Master Read Start Sequence
-	I2C_Master_Read_Start(I2Cx, slaveAddress, registerAddress);
-	// Wait for RXNE flag (EV7)
-	while (!(I2Cx->SR1.REG & I2C_SR1_RXNE));
-	// Read Data Byte
-	data = I2Cx->DR.REG;
-	// I2C Master Stop Sequence
-	I2C_Master_Stop(I2Cx);
-	// Return the read byte
-	return data;
-}
-
-/**
- * @brief Reads Multiple Consecutive Bytes from a Register Address of a given Slave Address
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] slaveAddress Slave Address
- * @param[in] registerAddress Starting Register Address
- * @param[out] data Pointer to the buffer to store the read data
- * @param[in] len Number of bytes to read
- */
-void I2C_Read_Reg_Block(I2C_TypeDef* I2Cx, uint8_t slaveAddress, uint8_t registerAddress, uint8_t* data, uint8_t len){
-	// I2C Master Read Start Sequence
-	I2C_Master_Read_Start(I2Cx, slaveAddress, registerAddress);
-	// For other bytes, generate ACK
-	I2Cx->CR1.REG |= I2C_CR1_ACK;
-	// Read Multiple Bytes
-	for (uint8_t i = 0; i < len; i++) {
-		// For the last byte, generate NACK
-		if (i == (len - 1))
-			I2Cx->CR1.REG &= ~I2C_CR1_ACK;
-		// Wait for RXNE flag (EV7)
-		while (!(I2Cx->SR1.REG & I2C_SR1_RXNE));
-		// Read Data Byte
-		data[i] = I2Cx->DR.REG;
+	if ((operationState != DRIVER_STATUS_ON) && (operationState != DRIVER_STATUS_OFF))
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
-	// I2C Master Stop Sequence
-	I2C_Master_Stop(I2Cx);
+	
+	//! Extract the CR1 register value
+	cr1 = LL_I2C_ReadCR1(I2Cx);	
+	//! Set or clear the PE bit based on the operation state
+	ASSERT_DRIVER_STATUS(Codec_I2C_StageOperationState(&cr1, operationState));
+	//! Write back to CR1 register
+	LL_I2C_WriteCR1(I2Cx, cr1);
+	
+	return DRIVER_STATUS_SUCCESS;
 }
++
+driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig)
+{
+	// Local Variables
+	reg temp = 0x00UL;
+	driver_status_t status = DRIVER_STATUS_ERROR_NULL_PTR;
 
-#endif
+	//! Validate Input
+	if((I2Cx == NULL) || (pConfig == NULL))
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+	//! Validate the range for input parameters
+	if (I2C_IS_VALID_INSTANCE(I2Cx) == 0U)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+	if ((I2C_IS_VALID_SPEED(pConfig->bus_speed) == 0U) || (I2C_IS_VALID_FAST_DUTY(pConfig->fast_mode_duty) == 0U))
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
+	//! Enable Clock for Peripheral
+	temp = _I2C_GetAPB1ClockEnableMask(I2Cx);
+	if (temp == 0x00000000UL)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+	else
+	{
+		ASSERT_DRIVER_STATUS(RCC_SetPeripheralClockState(RCC_APB1_BUS, temp, DRIVER_STATUS_ON));
+	}
+
+	//! Reset Peripheral
+	temp = _I2C_GetAPB1PeripheralResetMask(I2Cx);
+	if (temp == 0x00000000UL)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+	else
+	{
+		ASSERT_DRIVER_STATUS(RCC_PulsePeripheralReset(RCC_APB1_BUS, temp));
+	}
+
+	//! Disable the Peripheral
+	LL_I2C_WriteCR1(I2Cx, 0x00000000UL);
+
+	//! Configure I2C
+
+
+}

@@ -466,6 +466,218 @@ controller-only scope. IRQ gates, DMAEN/LAST, GPIO/AFIO, NVIC, and RCC gate
 state are not members of `i2c_config_t`. `I2C_DeConfig` pulses the matching
 APB1 reset through RCC and leaves clock/NVIC/GPIO state unchanged.
 
+## Timing Register Theory
+
+### I2C Bus Physics Fundamentals
+
+The I2C bus uses **open-drain** outputs, unlike SPI or UART (push-pull):
+- **LOW:** The driver actively pulls the line to ground (strong pull-down)
+- **HIGH:** The driver releases the line, and a pull-up resistor pulls it to VCC (weak pull-up)
+
+This design prevents bus contention and allows clock stretching, but it introduces the **rise time problem**.
+
+### The Rise Time Problem
+
+When SCL goes HIGH:
+1. Master releases SCL (driver turns off)
+2. Pull-up resistor starts charging the bus capacitance
+3. Voltage rises exponentially: `V(t) = VCC × (1 - e^(-t/RC))`
+
+The rise time equation: `Rise time = R × C`
+- **R:** Pull-up resistor value (typically 1kΩ to 10kΩ)
+- **C:** Total bus capacitance (wires + device pins)
+
+**Example:** R = 4.7kΩ, C = 200pF → Rise time = 0.94 µs
+
+The TRISE register exists to filter this slow rise and prevent false edge detection.
+
+### Why TRISE is Calculated This Way
+
+#### Standard Mode TRISE Formula
+```
+TRISE = PCLK1_MHz + 1
+```
+
+**Theory:**
+- The hardware counts PCLK1 cycles during the rise
+- If PCLK1 = 36 MHz, each cycle = 27.78 ns
+- TRISE = 37 means the hardware waits 37 × 27.78 ns = 1.03 µs
+- This matches the Standard Mode spec: maximum 1 µs rise time
+
+**Why +1?**
+- The hardware adds 1 internal cycle
+- We write `TRISE = desired_cycles - 1`
+- The formula shows `+1` because it compensates for ensuring the rise time is **at least** 1 µs, not exactly 1 µs
+
+#### Fast Mode TRISE Formula
+```
+TRISE = (PCLK1_MHz × 300ns) / 1000 + 1
+```
+
+**Theory:**
+- Fast Mode spec: maximum 300 ns rise time
+- We need to count how many PCLK1 cycles equal 300 ns
+- For PCLK1 = 36 MHz: 300 ns / 27.78 ns = 10.8 cycles → round to 11
+- `TRISE = (36 × 300) / 1000 + 1 = 11`
+
+### Why CCR is Calculated This Way
+
+#### The SCL Waveform
+
+SCL is a digital clock with:
+- **Tlow:** Time SCL is LOW (master drives it)
+- **Thigh:** Time SCL is HIGH (pull-up resistor pulls it up)
+
+**Total Period:** `T = Tlow + Thigh`
+**Frequency:** `f_SCL = 1 / T`
+
+#### Standard Mode: Tlow = Thigh (50% Duty)
+
+**The Hardware Equation:**
+```
+SCL period = 2 × CCR × T_PCLK1
+f_SCL = PCLK1 / (2 × CCR)
+```
+
+**Solving for CCR:**
+```
+CCR = PCLK1 / (2 × f_SCL)
+```
+
+**Why this formula?**
+- The hardware divides PCLK1 by `CCR` to get a slower clock
+- It uses this divided clock to time both Tlow and Thigh
+- In Standard mode, both are equal, so the divisor is applied twice
+
+**Example:** PCLK1 = 36 MHz, target f_SCL = 100 kHz
+- `CCR = 36,000,000 / (2 × 100,000) = 180`
+- Hardware divides 36 MHz by 180 = 200 kHz
+- This 200 kHz times both Tlow and Thigh = 100 kHz SCL
+
+#### Fast Mode 2:1: Tlow = 2 × Thigh
+
+**The Hardware Equation:**
+```
+SCL period = 3 × CCR × T_PCLK1
+f_SCL = PCLK1 / (3 × CCR)
+```
+
+**Solving for CCR:**
+```
+CCR = PCLK1 / (3 × f_SCL)
+```
+
+**Why divisor 3?**
+- Tlow uses 2 cycles of the divided clock
+- Thigh uses 1 cycle of the divided clock
+- Total = 3 cycles per period
+
+**Why 2:1 ratio?**
+- Longer LOW time gives more margin for fall time
+- Faster overall frequency while maintaining signal integrity
+- Aggressive timing for maximum speed
+
+#### Fast Mode 16:9: Tlow = 16/9 × Thigh
+
+**The Hardware Equation:**
+```
+SCL period = 25 × CCR × T_PCLK1
+f_SCL = PCLK1 / (25 × CCR)
+```
+
+**Solving for CCR:**
+```
+CCR = PCLK1 / (25 × f_SCL)
+```
+
+**Why divisor 25?**
+- Tlow uses 16 cycles of the divided clock
+- Thigh uses 9 cycles of the divided clock
+- Total = 25 cycles per period
+
+**Why 16:9 ratio?**
+- More balanced duty cycle (64% LOW, 36% HIGH)
+- Better for EMC (electromagnetic compatibility)
+- Closer to 50% than 2:1, reducing radiated emissions
+- Required for some I2C Fast Mode devices
+
+### Why Ceiling Division?
+
+The code uses ceiling division:
+```c
+ccrValue = (reg)(((apb1FrequencyHz + (divisor * sclHz) - 1) / (divisor * sclHz)));
+```
+
+**Theory:**
+- We want `f_SCL ≤ target` (never exceed spec)
+- If PCLK1 = 36 MHz, target = 100 kHz, CCR = 180
+- If PCLK1 = 35.5 MHz, target = 100 kHz, CCR = 177.5
+- Truncating to 177 would give: `f_SCL = 35,500,000 / (2 × 177) = 100.28 kHz` (exceeds spec!)
+- Ceiling division rounds up to 178: `f_SCL = 35,500,000 / (2 × 178) = 99.72 kHz` (safe)
+
+**The + (divisor × sclHz) - 1 trick:**
+- Integer division truncates toward zero
+- Adding `(divisor × sclHz) - 1` before division rounds up
+- This is the C idiom for ceiling division without floating point
+
+### Hardware Implementation Insight
+
+The STM32 generates SCL through a divider and state machine:
+
+```
+PCLK1 (36 MHz)
+    ↓
+[ Divider: CCR ]
+    ↓
+Divided Clock (e.g., 200 kHz for CCR=180)
+    ↓
+[ State Machine ]
+    ↓
+SCL output
+```
+
+**Standard Mode State Machine:**
+```
+State 0: Drive LOW for 1 clock
+State 1: Drive LOW for 1 clock
+State 2: Release HIGH for 1 clock
+State 3: Release HIGH for 1 clock
+→ Repeat
+```
+Total: 4 states = 2 × (Tlow + Thigh) → divisor 2
+
+**Fast Mode 2:1 State Machine:**
+```
+State 0: Drive LOW for 2 clocks
+State 1: Release HIGH for 1 clock
+→ Repeat
+```
+Total: 3 states = divisor 3
+
+**Fast Mode 16:9 State Machine:**
+```
+State 0: Drive LOW for 16 clocks
+State 1: Release HIGH for 9 clocks
+→ Repeat
+```
+Total: 25 states = divisor 25
+
+### Summary of Design Rationale
+
+| Register | Why This Formula? |
+|----------|------------------|
+| **TRISE (Standard)** | `freqMHz + 1` because each PCLK1 cycle is 1/freqMHz seconds, and we need 1 µs rise time |
+| **TRISE (Fast)** | `(freqMHz × 300) / 1000 + 1` because we need 300 ns rise time, converted to PCLK1 cycles |
+| **CCR (Standard)** | `PCLK1 / (2 × SCL)` because Tlow = Thigh, so period = 2 × divided clock |
+| **CCR (Fast 2:1)** | `PCLK1 / (3 × SCL)` because Tlow = 2×Thigh, so period = 3 × divided clock |
+| **CCR (Fast 16:9)** | `PCLK1 / (25 × SCL)` because Tlow = 16/9×Thigh, so period = 25 × divided clock |
+
+The hardware design balances:
+- **Physical constraints** (rise time, capacitance)
+- **Timing specs** (I2C protocol requirements)
+- **Digital implementation** (simple divider + state machine)
+- **Flexibility** (support multiple speed modes)
+
 ## Master Transaction Model
 
 All `wait(flag)` steps mean: sample SR1 once, decode errors first, consume one

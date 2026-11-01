@@ -40,7 +40,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-// --- C++ Compatibility ---
+// C++ Compatibility
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -220,7 +220,7 @@ do												\
 
 /** @} */ // STM32F1xx_DataTypes
 
-// --- C++ Compatibility ---
+// C++ Compatibility
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

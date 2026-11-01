@@ -21,8 +21,8 @@
 #include "stm32f1xx.h"
 #include "i2c_data_types.h"
 #include "i2c_defines.h"
-#include "i2c_config.h"
 
+// C++ Compatibility
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -43,16 +43,13 @@ extern "C" {
  * @param[in] cr1RegImage I2C `CR1` register image
  * Expected values:
  * - Any valid `I2Cx_CR1` image captured by the Driver
- * @param[out] pOperationState Extracted I2C operation state
+ * @returns Extracted I2C operation state
  * Expected values:
  * - @ref `DRIVER_STATUS_ON`: `I2Cx_CR1.PE` is set
  * - @ref `DRIVER_STATUS_OFF`: `I2Cx_CR1.PE` is cleared
- * @returns @ref driver_status_t "Codec extraction status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: Operation state was extracted
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pOperationState` was `NULL`
  * @note This Codec performs no MMIO and does not validate the instance
  */
-driver_status_t Codec_I2C_ExtractOperationState(const reg cr1RegImage, driver_status_t* const pOperationState);
+driver_status_t Codec_I2C_ExtractOperationState(const reg cr1RegImage);
 
 /**
  * @brief Stages the I2C peripheral enable state into a CR1 image
@@ -271,8 +268,47 @@ driver_status_t Codec_I2C_ExtractError(const reg sr1RegImage, i2c_error_t* const
  */
 driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1Snapshot, const reg errorsToClear);
 
+// ==================================================================================================== //
+// I2C SR1/SR2 Status Flag Codec
+// ==================================================================================================== //
+
+/**
+ * @brief Reports whether the START condition has been generated (SB set)
+ * @details
+ * Tests `I2Cx_SR1.SB` without exposing the raw register bit to callers.
+ * Returns @ref `DRIVER_STATUS_SUCCESS` when SB is set and
+ * @ref `DRIVER_STATUS_ERROR` otherwise. The Driver uses this to
+ * boundedly poll for START generation completion.
+ * @param[in] sr1RegImage I2C `SR1` register image
+ * Expected values:
+ * - Any valid `I2Cx_SR1` image captured by the Driver
+ * @returns @ref driver_status_t "START-condition status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: SB is set (START generated)
+ * @retval - @ref `DRIVER_STATUS_ERROR`: SB is clear
+ * @note This Codec performs no MMIO and does not validate the instance
+ */
+driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage);
+
+/**
+ * @brief Reports whether the I2C bus is busy (BUSY set)
+ * @details
+ * Tests `I2Cx_SR2.BUSY` without exposing the raw register bit to callers.
+ * Returns @ref `DRIVER_STATUS_SUCCESS` when BUSY is set and
+ * @ref `DRIVER_STATUS_ERROR` otherwise. The Driver uses this to
+ * boundedly poll for bus idle after a STOP condition.
+ * @param[in] sr2RegImage I2C `SR2` register image
+ * Expected values:
+ * - Any valid `I2Cx_SR2` image captured by the Driver
+ * @returns @ref driver_status_t "Bus-busy status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: BUSY is set (bus busy)
+ * @retval - @ref `DRIVER_STATUS_ERROR`: BUSY is clear (bus idle)
+ * @note This Codec performs no MMIO and does not validate the instance
+ */
+driver_status_t Codec_I2C_IsBusBusy(const reg sr2RegImage);
+
 /** @} */ // I2C_04_Codec
 
+// C++ Compatibility
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

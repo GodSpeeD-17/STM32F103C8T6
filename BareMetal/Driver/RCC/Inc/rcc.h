@@ -36,7 +36,7 @@
 #include "rcc_config.h"
 #include "rcc_defines.h"
 
-// --- C++ Compatibility ---
+// C++ Compatibility
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -430,7 +430,7 @@ driver_status_t RCC_Config72MHz(void);
 
 /** @} */ // RCC_03_Driver
 
-// --- C++ Compatibility ---
+// C++ Compatibility
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
