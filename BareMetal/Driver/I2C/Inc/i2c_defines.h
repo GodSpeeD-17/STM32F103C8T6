@@ -44,20 +44,21 @@ extern "C" {
  * @{
  */
 
+typedef uint8_t								i2c_mode_t;
 /** @brief I2C - Standard Mode (100kHz) @def I2C_SPEED_STANDARD_MODE */
-#define I2C_SPEED_STANDARD_MODE				((frequency_t) 100U * FREQ_1kHz)
+#define I2C_SPEED_STANDARD_MODE				((i2c_mode_t) 0U)
 /** @brief I2C - Fast mode (400kHz) @def I2C_SPEED_FAST_MODE */
-#define I2C_SPEED_FAST_MODE					((frequency_t) 400U * FREQ_1kHz)
+#define I2C_SPEED_FAST_MODE					((i2c_mode_t) 1U)
 /**
- * @brief Validate an I2C bus speed
- * @def I2C_IS_VALID_SPEED
- * @param[in] speed I2C Bus Speed
- * @returns I2C Speed Validation Result
- * @retval - `0x00U`: Speed Invalid
- * @retval - `0x01U`: Speed Valid
+ * @brief Validate an I2C mode
+ * @def I2C_IS_VALID_MODE
+ * @param[in] mode I2C Mode
+ * @returns I2C Mode Validation Result
+ * @retval - `0x00U`: Mode Invalid
+ * @retval - `0x01U`: Mode Valid
  */
-#define I2C_IS_VALID_SPEED(speed)			\
-	((speed) == I2C_SPEED_STANDARD_MODE || (speed) == I2C_SPEED_FAST_MODE)
+#define I2C_IS_VALID_MODE(mode)			\
+	(((mode) == I2C_SPEED_STANDARD_MODE) || ((mode) == I2C_SPEED_FAST_MODE))
 
 /** @} */ // I2C_02_Defines_01_SpeedPresets
 
@@ -93,7 +94,7 @@ typedef uint8_t								i2c_fast_duty_t;
  * @retval - `0x01U`: Duty Cycle Valid
  */
 #define I2C_IS_VALID_FAST_DUTY(duty)		\
-	((duty) == I2C_FAST_DUTY_2_1 || (duty) == I2C_FAST_DUTY_16_9)
+	(((duty) == I2C_FAST_DUTY_2_1) || ((duty) == I2C_FAST_DUTY_16_9))
 
 /** @} */ // I2C_02_Defines_02_FastDuty
 

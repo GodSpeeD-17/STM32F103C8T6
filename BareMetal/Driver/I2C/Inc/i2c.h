@@ -82,16 +82,22 @@ typedef struct
 	 * @details
 	 * Selects the target SCL frequency. The Driver computes CR2.FREQ,
 	 * CCR, and TRISE values based on this preset and the live APB1 clock.
+	 * Accepted Values:
+	 * - @ref `I2C_SPEED_STANDARD_MODE`
+	 * - @ref `I2C_SPEED_FAST_MODE`
 	 */
-	frequency_t			bus_speed;
+	i2c_mode_t			busMode: 1;
 
 	/**
 	 * @brief Fast mode duty cycle
 	 * @details
-	 * Meaningful only when bus_speed is I2C_SPEED_PRESET_400_KHZ.
+	 * Meaningful only when bus_speed is @ref `I2C_SPEED_FAST_MODE`.
 	 * Selects the SCL low/high period ratio in Fast mode.
+	 * Accepted Values:
+	 * - @ref `I2C_FAST_DUTY_2_1`
+	 * - @ref `I2C_FAST_DUTY_16_9`
 	 */
-	i2c_fast_duty_t		fast_mode_duty;
+	i2c_fast_duty_t		fastModeDuty: 1;
 } i2c_config_t;
 
 /** @} */ // I2C_02_Config
