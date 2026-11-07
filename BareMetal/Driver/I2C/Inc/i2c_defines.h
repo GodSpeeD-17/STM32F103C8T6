@@ -33,7 +33,31 @@ extern "C" {
  */
 
 /**
- * @defgroup I2C_02_Defines_01_SpeedPresets I2C Speed Presets
+ * @defgroup I2C_02_Defines_01_Validation I2C Validation Macros
+ * @ingroup I2C_02_Defines
+ * @brief Pure validation macros for I2C parameters
+ * @details
+ * These macros perform compile-time or runtime validation of I2C
+ * parameters without side effects. They return boolean results
+ * and are used by the Driver for preflight validation.
+ * @{
+ */
+
+/**
+ * @def I2C_IS_VALID_INSTANCE
+ * @brief Validate an I2C instance pointer
+ * @param[in] I2Cx Peripheral pointer to validate
+ * @returns I2C Instance Validation Result
+ * @retval - `0x00U`: Instance Invalid
+ * @retval - `0x01U`: Instance Valid
+ */
+#define I2C_IS_VALID_INSTANCE(I2Cx)		\
+	(((I2Cx) == I2C1) || ((I2Cx) == I2C2))
+
+/** @} */ // I2C_02_Defines_01_Validation
+
+/**
+ * @defgroup I2C_02_Defines_02_SpeedPresets I2C Speed Presets
  * @ingroup I2C_02_Defines
  * @brief Admitted I2C bus speed presets
  * @details
@@ -45,10 +69,10 @@ extern "C" {
  */
 
 typedef uint8_t								i2c_mode_t;
-/** @brief I2C - Standard Mode (100kHz) @def I2C_SPEED_STANDARD_MODE */
-#define I2C_SPEED_STANDARD_MODE				((i2c_mode_t) 0U)
-/** @brief I2C - Fast mode (400kHz) @def I2C_SPEED_FAST_MODE */
-#define I2C_SPEED_FAST_MODE					((i2c_mode_t) 1U)
+/** @brief I2C - Standard Mode (100kHz) @def I2C_BUS_STANDARD_MODE */
+#define I2C_BUS_STANDARD_MODE				((i2c_mode_t) 0U)
+/** @brief I2C - Fast mode (400kHz) @def I2C_BUS_FAST_MODE */
+#define I2C_BUS_FAST_MODE					((i2c_mode_t) 1U)
 /**
  * @brief Validate an I2C mode
  * @def I2C_IS_VALID_MODE
@@ -58,17 +82,17 @@ typedef uint8_t								i2c_mode_t;
  * @retval - `0x01U`: Mode Valid
  */
 #define I2C_IS_VALID_MODE(mode)			\
-	(((mode) == I2C_SPEED_STANDARD_MODE) || ((mode) == I2C_SPEED_FAST_MODE))
+	(((mode) == I2C_BUS_STANDARD_MODE) || ((mode) == I2C_BUS_FAST_MODE))
 
-/** @} */ // I2C_02_Defines_01_SpeedPresets
+/** @} */ // I2C_02_Defines_02_SpeedPresets
 
 /**
- * @defgroup I2C_02_Defines_02_FastDuty I2C Fast Mode Duty Cycle
+ * @defgroup I2C_02_Defines_03_FastDuty I2C Fast Mode Duty Cycle
  * @ingroup I2C_02_Defines
  * @brief Fast mode duty cycle selection
  * @details
  * Controls the SCL low/high period ratio in Fast mode. Meaningful only
- * when the speed preset is I2C_SPEED_FAST_MODE.
+ * when the speed preset is I2C_BUS_FAST_MODE.
  * @{
  */
 
@@ -96,33 +120,83 @@ typedef uint8_t								i2c_fast_duty_t;
 #define I2C_IS_VALID_FAST_DUTY(duty)		\
 	(((duty) == I2C_FAST_DUTY_2_1) || ((duty) == I2C_FAST_DUTY_16_9))
 
-/** @} */ // I2C_02_Defines_02_FastDuty
+/** @} */ // I2C_02_Defines_03_FastDuty
+
+/** @} */ // I2C_02_Defines
 
 /**
- * @defgroup I2C_02_Defines_03_Validation I2C Validation Macros
- * @ingroup I2C_02_Defines
- * @brief Pure validation macros for I2C parameters
+ * @defgroup I2C_02_Config I2C Configuration Structure
+ * @ingroup I2C
+ * @brief Instance-independent timing configuration
  * @details
- * These macros perform compile-time or runtime validation of I2C
- * parameters without side effects. They return boolean results
- * and are used by the Driver for preflight validation.
+ * Timing configuration structure for I2C peripheral initialization.
+ * Contains bus speed preset and fast mode duty cycle selection.
  * @{
  */
 
 /**
- * @def I2C_IS_VALID_INSTANCE
- * @brief Validate an I2C instance pointer
- * @param[in] I2Cx Peripheral pointer to validate
- * @returns I2C Instance Validation Result
- * @retval - `0x00U`: Instance Invalid
- * @retval - `0x01U`: Instance Valid
+ * @brief I2C timing configuration structure
+ * @typedef i2c_config_t
+ * @details
+ * Instance-independent timing configuration for I2C peripheral.
+ * The Driver uses this structure to compute CR2.FREQ, CCR, and TRISE
+ * register values based on the live APB1 clock frequency.
+ *
+ * **Speed Presets:**
+ * - 88 kHz: ES096-safe Standard mode for repeated START
+ * - 100 kHz: Standard mode for ordinary transfers
+ * - 400 kHz: Fast mode (requires duty cycle selection)
+ *
+ * **Fast Mode Duty Cycle:**
+ * - 2:1: Tlow/Thigh = 2/1 (DUTY=0, CCR = PCLK1 / (3 * FSCL))
+ * - 16:9: Tlow/Thigh = 16/9 (DUTY=1, CCR = PCLK1 / (25 * FSCL))
+ *
+ * The 88 kHz preset is the portable Standard-mode choice for combined
+ * write-then-read operations on silicon affected by ES096 2.8.5.
+ * The 100 kHz preset is valid for ordinary single-phase transfers but
+ * is rejected for combined operations in Standard mode above 88 kHz.
+ *
+ * @note Configuration requires PE=0 and a free bus. The APB1 clock
+ *       must be enabled by the application before calling I2C_Init.
+ * @see I2C_ARCHITECTURE.md Section "Configuration Model" for timing equations
  */
-#define I2C_IS_VALID_INSTANCE(I2Cx)		\
-	(((I2Cx) == I2C1) || ((I2Cx) == I2C2))
+typedef struct
+{
+	/**
+	 * @brief Bus speed preset
+	 * @details
+	 * Selects the target SCL frequency. The Driver computes CR2.FREQ,
+	 * CCR, and TRISE values based on this preset and the live APB1 clock.
+	 * Accepted Values:
+	 * - @ref `I2C_BUS_STANDARD_MODE`
+	 * - @ref `I2C_BUS_FAST_MODE`
+	 */
+	i2c_mode_t			busMode: 1;
 
-/** @} */ // I2C_02_Defines_03_Validation
+	/**
+	 * @brief Fast mode duty cycle
+	 * @details
+	 * Meaningful only when bus_speed is @ref `I2C_BUS_FAST_MODE`.
+	 * Selects the SCL low/high period ratio in Fast mode.
+	 * Accepted Values:
+	 * - @ref `I2C_FAST_DUTY_2_1`
+	 * - @ref `I2C_FAST_DUTY_16_9`
+	 */
+	i2c_fast_duty_t		fastModeDuty: 1;
+} i2c_config_t;
 
-/** @} */ // I2C_02_Defines
+/**
+ * @brief	Validates an I2C configuration structure
+ * @def		I2C_IS_VALID_CONFIG
+ * @param[in] pConfig Pointer to an I2C configuration structure
+ * @returns I2C Configuration Validation Result
+ * @retval - `0x00U`: Configuration Invalid
+ * @retval - `0x01U`: Configuration Valid
+ */
+#define I2C_IS_VALID_CONFIG(pConfig)		\
+	((I2C_IS_VALID_MODE((pConfig)->busMode)) && (I2C_IS_VALID_FAST_DUTY((pConfig)->fastModeDuty)))
+
+/** @} */ // I2C_02_Config
 
 // C++ Compatibility
 #ifdef __cplusplus

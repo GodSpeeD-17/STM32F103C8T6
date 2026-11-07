@@ -44,9 +44,8 @@ extern "C" {
  * Expected values:
  * - Any valid `I2Cx_CR1` image captured by the Driver
  * @returns Extracted I2C operation state
- * Expected values:
- * - @ref `DRIVER_STATUS_ON`: `I2Cx_CR1.PE` is set
- * - @ref `DRIVER_STATUS_OFF`: `I2Cx_CR1.PE` is cleared
+ * @retval - @ref `DRIVER_STATUS_ON`: I2C Peripheral Disabled
+ * @retval - @ref `DRIVER_STATUS_OFF`: I2C Peripheral Enabled
  * @note This Codec performs no MMIO and does not validate the instance
  */
 driver_status_t Codec_I2C_ExtractOperationState(const reg cr1RegImage);
@@ -224,6 +223,23 @@ driver_status_t Codec_I2C_StagePos(reg* const pCr1RegImage, const uint8_t pos);
  * @note Unrelated `CR1` bits are preserved
  */
 driver_status_t Codec_I2C_StageSoftwareReset(reg* const pCr1RegImage, const uint8_t reset);
+
+/**
+ * @brief Validates that no START or STOP action is still pending in a CR1 image
+ * @details
+ * Tests `I2Cx_CR1.START` and `I2Cx_CR1.STOP` without exposing the raw register
+ * bits to the Driver. Both bits are write-only action requests that self-clear
+ * once the peripheral retires the sequence they describe, so a set bit means an
+ * action is still in progress and the timing registers must not be retimed.
+ * @param[in] cr1RegImage I2C `CR1` register image
+ * Expected values:
+ * - Any valid `I2Cx_CR1` image captured by the Driver
+ * @returns @ref driver_status_t "CR1 action-idle validation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Neither START nor STOP is pending
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: START or STOP is still pending
+ * @note This Codec performs no MMIO and does not validate the instance
+ */
+driver_status_t Codec_I2C_ValidateActionIdle(const reg cr1RegImage);
 
 // ==================================================================================================== //
 // I2C SR1 Error Codec

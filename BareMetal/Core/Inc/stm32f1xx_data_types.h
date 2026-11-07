@@ -130,8 +130,12 @@ typedef uint32_t								frequency_t;
 
 /** @brief Zero-valued frequency used for inactive or unavailable clocks @def FREQ_ZERO */
 #define FREQ_ZERO								((frequency_t) 0UL)
-/** @brief One-kilohertz frequency scaling constant @def FREQ_1kHz */
+/** @brief 1kHz frequency scaling constant @def FREQ_1kHz */
 #define FREQ_1kHz								((frequency_t) 1000UL)
+/** @brief 10kHz frequency scaling constant @def FREQ_10kHz */
+#define FREQ_10kHz								((frequency_t) 10000UL)
+/** @brief 100kHz frequency scaling constant @def FREQ_100kHz */
+#define FREQ_100kHz								((frequency_t) 100000UL)
 /** @brief One-megahertz frequency scaling constant @def FREQ_1MHz */
 #define FREQ_1MHz								((frequency_t) 1000000UL)
 
@@ -157,27 +161,27 @@ typedef uint32_t								frequency_t;
  */
 typedef enum _driver_status_t
 {
-	/** @brief Peripheral or driver is currently executing an operation. */
+	/** @brief Peripheral or driver is currently executing an operation. @enum DRIVER_STATUS_ERROR_BUSY */
 	DRIVER_STATUS_ERROR_BUSY				=	-6,
-	/** @brief Operation requested in an invalid driver or peripheral state. */
+	/** @brief Operation requested in an invalid driver or peripheral state. @enum DRIVER_STATUS_ERROR_STATE */
 	DRIVER_STATUS_ERROR_STATE				=	-5,
-	/** @brief Operation timed out waiting for hardware or condition. */
+	/** @brief Operation timed out waiting for hardware or condition. @enum DRIVER_STATUS_ERROR_TIMEOUT */
 	DRIVER_STATUS_ERROR_TIMEOUT				=	-4,
-	/** @brief Operation failed due to a non-specific error. */
+	/** @brief Operation failed due to a non-specific error. @enum  */
 	DRIVER_STATUS_ERROR_FAIL				=	-3,
-	/** @brief An input parameter was invalid or out of range. */
+	/** @brief An input parameter was invalid or out of range. @enum DRIVER_STATUS_ERROR_INVALID_ARG */
 	DRIVER_STATUS_ERROR_INVALID_ARG			=	-2,
-	/** @brief Operation failed due to a null pointer. */
+	/** @brief Operation failed due to a null pointer. @enum DRIVER_STATUS_ERROR_NULL_PTR */
 	DRIVER_STATUS_ERROR_NULL_PTR			=	-1,
-	/** @brief Generic error (baseline error code). */
+	/** @brief Generic error (baseline error code). @enum DRIVER_STATUS_ERROR */
 	DRIVER_STATUS_ERROR						=	 0,
-	/** @brief Operation completed successfully. */
+	/** @brief Operation completed successfully. @enum DRIVER_STATUS_SUCCESS */
 	DRIVER_STATUS_SUCCESS					=	 1,
-	/** @brief Target state: Disabled or turned OFF. */
+	/** @brief Target state: Disabled or turned OFF. @enum DRIVER_STATUS_OFF */
 	DRIVER_STATUS_OFF						=	 2,
-	/** @brief Target state: Enabled or turned ON. */
+	/** @brief Target state: Enabled or turned ON. @enum DRIVER_STATUS_ON */
 	DRIVER_STATUS_ON						=	 3,
-	/** @brief Peripheral or driver is configured and ready for an operation. */
+	/** @brief Peripheral or driver is configured and ready for an operation. @enum DRIVER_STATUS_READY */
 	DRIVER_STATUS_READY						=	 4
 } driver_status_t;
 

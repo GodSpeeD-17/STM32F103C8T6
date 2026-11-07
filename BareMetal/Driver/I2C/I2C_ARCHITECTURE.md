@@ -45,11 +45,11 @@ Observed -> Candidate -> Admitted -> Contract-frozen -> Implemented -> Verified
 
 ### Current supported domain
 
-No end-to-end I2C capability is currently supported. The active `I2C_Config`
-body is empty, has no declared return type, and has no public declaration. The
-only active callable header logic is an unchecked enum-to-pointer mapper plus
-raw/mixed-responsibility inline LL code. The legacy polling transactions are
-excluded by `__OLD_I2C__` and are evidence, not supported behavior.
+No end-to-end I2C capability is currently supported. `I2C_Init` implements the
+complete staged timing transaction and `I2C_DeInit` implements the RCC-reset
+lifecycle conjugate, but the transfer APIs remain undefined, so the module does
+not yet link. The legacy polling transactions are excluded by `__OLD_I2C__` and
+are evidence, not supported behavior.
 
 ### Intended supported domain
 
@@ -177,7 +177,7 @@ I2C2 has no remapped SCL/SDA route on this target.
 | `Inc/i2c_irq.h` | Entire file commented out | No active IRQ API or state-machine contract. |
 | `Inc/i2c_dma.h` | Entire file commented out | No active DMA contract. |
 | `Inc/i2c_rb.h` | Entire file commented out | Device/application buffering is misplaced in the peripheral stack. |
-| `Src/i2c.c` | Empty active `I2C_Config`; compiled-out unbounded polling and register-oriented helpers | Active implementation is nonfunctional and warning-clean compilation fails. Legacy code contains sequencing, validation, error, and concurrency defects. |
+| `Src/i2c.c` | Active `I2C_Init` staging transaction, `I2C_DeInit` RCC-reset conjugate, and operation-state API; compiled-out unbounded polling and register-oriented helpers | Both lifecycle entry points match their frozen contracts; two unused START/STOP static helpers and undefined transfer symbols still block warning-clean compilation and linking. Legacy code contains sequencing, validation, error, and concurrency defects. |
 | `Src/i2c_config.c` | Entire file commented out | Historical timing/GPIO/clock implementation only. |
 | `Src/i2c_irq.c` | Entire file commented out | Historical CR2 interrupt-gate RMW only; no event/error handling. |
 | `Src/i2c_dma.c` | Comment-only include | Unused placeholder. |
@@ -236,7 +236,7 @@ not sufficient.
 4. Core defines the register model, offsets, qualifiers, and raw fields only.
 5. Application/BSP owns GPIO/AFIO route, pull-ups, electrical constraints, and
    GPIO-based recovery.
-6. RCC/application owns the APB1 clock gate. `I2C_DeConfig` may request the RCC
+6. RCC/application owns the APB1 clock gate. `I2C_DeInit` may request the RCC
    reset pulse but leaves the gate unchanged.
 7. Peripheral source generation and NVIC delivery are independent domains.
 8. No polling loop is unbounded and no error is silently collapsed.
@@ -300,8 +300,8 @@ this branch scope.
 | `i2c_address_t` | `uint16_t` in `i2c.h` | `REPLACE` | Public accepted address is an unshifted 7-bit semantic alias. |
 | `i2c_slave_address_config_t` | `i2c.h`; no active caller | `DEFER` | Claims unsupported 10-bit dual-address combinations; OAR2 is seven-bit only. |
 | `i2c_mode_t`, `I2C_MODE_MASTER/SLAVE` | `i2c.h`; no active caller | `REMOVE/DEFER` | Hardware role is transaction/event state; first scope is controller only. |
-| `i2c_config_t` | `i2c.h`; consumed only by empty source definition | `REPLACE` | New config contains timing domain (bus_speed_khz, fast_duty_ratio, disable_clock_stretching). |
-| `I2C_Config` | Definition only, implicit `int`, empty body | `KEEP NAME/REPLACE CONTRACT` | Canonical root configuration API returns `driver_status_t` and accepts pointer instance/config. |
+| `i2c_config_t` | `i2c.h`; consumed only by `I2C_Init` | `REPLACE` | Current two-bitfield struct is retained as-is; the planned config contains the timing domain (bus_speed_khz, fast_duty_ratio, disable_clock_stretching). |
+| `I2C_Init` | Declared root configuration API; the empty legacy body is replaced by the staged timing transaction | `KEEP NAME/REPLACE CONTRACT` | Canonical root configuration API returns `driver_status_t` and accepts pointer instance/config. |
 
 ### Guarded legacy Driver surface
 
@@ -311,7 +311,7 @@ linkage unless a nonstandard build defines that macro.
 | Existing symbol | Actual callers | Disposition |
 | --- | --- | --- |
 | `I2C_readAddress`, `I2C_writeAddress` | Legacy I2C code/SSD1306 | `INTERNALIZE` as Codec address-byte encoding |
-| `I2C_Init` | None found | `REMOVE`; configuration and operation state remain explicit |
+| `I2C_Init` (legacy body) | None found | `REMOVED`; the name is reclaimed by the canonical root configuration API and the legacy body is not retained |
 | `I2C_busReady` | Legacy I2C/SSD1306 | `REPLACE` with fallible bounded Driver precondition |
 | `I2C_sendStart`, `I2C_sendStop`, `I2C_writeByte`, `I2C_readByte` | Legacy I2C/SSD1306 | `INTERNALIZE`; raw transaction steps cannot be public safe APIs |
 | `I2C_Master_Write_Start`, `I2C_Master_Write_Data`, `I2C_Master_Stop`, `I2C_Master_Write_Byte` | SSD1306 legacy paths | `REPLACE` with one bounded `I2C_MasterTransmit` transaction |
@@ -338,8 +338,8 @@ The following is contract-frozen for the first implementation wave. Exact
 Doxygen is implemented with the code and must follow coding preferences.
 
 ```c
-driver_status_t I2C_DeConfig(I2C_TypeDef* const I2Cx);
-driver_status_t I2C_Config(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
+driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx);
+driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig);
 driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx);
 driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_status_t operationState);
 
@@ -463,7 +463,7 @@ fails before MMIO.
 
 Own-address registers remain at reset/unowned values in the admitted
 controller-only scope. IRQ gates, DMAEN/LAST, GPIO/AFIO, NVIC, and RCC gate
-state are not members of `i2c_config_t`. `I2C_DeConfig` pulses the matching
+state are not members of `i2c_config_t`. `I2C_DeInit` pulses the matching
 APB1 reset through RCC and leaves clock/NVIC/GPIO state unchanged.
 
 ## Timing Register Theory
@@ -811,7 +811,7 @@ latency and concurrency gates.
 | invalid software state | live register/state mismatch | Return before first transaction write | Driver |
 | aborted/partial TX/RX | result counters/error | One cleanup path; destination prefix contract | Driver reports; application decides retry/discard |
 
-RCC reset is the canonical complete `I2C_DeConfig` action. CR1.SWRST is the
+RCC reset is the canonical complete `I2C_DeInit` action. CR1.SWRST is the
 in-transaction peripheral recovery tool. Neither can guarantee release from
 ES096 analog-filter lock. SCL/SDA recovery requires board route knowledge and
 therefore cannot be hidden inside the generic Driver.
@@ -835,7 +835,7 @@ Boolean status, polls without bounds, and has no failure-atomic dequeue rule.
 
 | ID | Layer | Evidence | Current behavior | Required behavior | Risk | Planned resolution | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| I2C-DRV-001 | Driver | warning-clean syntax check | Implicit return type on empty `I2C_Config`; unused inputs | Declared `driver_status_t` implementation | Build failure | Wave 3 replacement | `PLANNED` |
+| I2C-DRV-001 | Driver | `i2c.c` `I2C_Init` | Full validate/snapshot/stage/commit transaction; no implicit-return or unused-input path remains | Declared `driver_status_t` implementation | Build failure | Rewritten in the root-configuration wave | `RESOLVED` |
 | I2C-DRV-002 | Driver | `i2c.h`/`i2c.c` | No active public transfer API or usable configuration | Frozen lifecycle and transfer surface | No generic capability | Waves 3-6 | `PLANNED` |
 | I2C-DRV-003 | Driver | legacy loops | Every wait is unbounded and ignores errors | Transaction-wide poll budget and error-first waits | Permanent hang | Waves 4-6 | `PLANNED` |
 | I2C-DRV-004 | Driver | legacy read path | Read address written twice; one/two/multi-byte tails incorrect; no POS handling | RM0008 Figures 274-277 and ES096 sequences | Corrupt/missing data | Wave 5 | `PLANNED` |
@@ -844,7 +844,7 @@ Boolean status, polls without bounds, and has no failure-atomic dequeue rule.
 | I2C-DRV-007 | Driver | legacy helpers | Void/raw-byte/Boolean returns collapse errors and progress | `driver_status_t` plus typed result | Undiagnosable failure | Waves 1,4-6 | `PLANNED` |
 | I2C-DRV-008 | Driver | legacy global `temp` | Shared mutable static transaction state | Function-local images and exclusive-owner contract | Cross-instance/task race | Wave 4 | `PLANNED` |
 | I2C-DRV-009 | Driver | current config types | Claims slave, 10-bit dual address, general call, and mode support without implementation | Master-only admitted domain; deferred claims removed | False API promise | Wave 1 | `PLANNED` |
-| I2C-DRV-010 | Driver | legacy config | Hidden RCC, AFIO, and GPIO mutation | Verify RCC; application owns gates and pins | Shared-resource corruption | Wave 3 | `PLANNED` |
+| I2C-DRV-010 | Driver | legacy config | Hidden RCC, AFIO, and GPIO mutation | Verify RCC; application owns gates and pins | Shared-resource corruption | `I2C_Init` now observes the APB1 gate, pulses no reset, and leaves AFIO/GPIO/NVIC untouched | `RESOLVED` |
 | I2C-CODEC-001 | Codec | file inventory | No Codec exists; field staging lives in LL/legacy Driver | Pure timing/address/error/CR1 transformations | Layer inversion/duplication | Wave 2 | `PLANNED` |
 | I2C-CODEC-002 | Codec | legacy timing code | Timing is commented out, truncates blindly, and lacks bounds/failure status | Ceiling math, legal limits, boundary tests | Overclock/invalid timing | Wave 2 | `PLANNED` |
 | I2C-LL-001 | LL | `i2c_ll.h` | LL mutates RCC and owns protocol selectors/staging | Mechanical I2C register access only | Broken dependency boundary | Wave 1 | `PLANNED` |
@@ -886,8 +886,8 @@ evidence.
 
 | Public operation | Driver validation/order | Codec | LL/registers | Flags/errors | Status/result | Planned verification | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `I2C_DeConfig` | Instance, RCC gate; decode reset mask; pulse reset | N/A | RCC peer; no I2C MMIO required | N/A | success/invalid/state | peer-call trace | `CONTRACT-FROZEN` |
-| `I2C_Config` | Full preflight; snapshot; all staging; dirty commit CR2/CCR/TRISE/CR1 | Extract/stage timing and baseline | read/write CR1, CR2, CCR, TRISE; read SR2 | BUSY, action state | success/null/invalid/state | timing boundaries, no-write-on-error, MMIO order | `CONTRACT-FROZEN` |
+| `I2C_DeInit` | Instance, RCC gate; decode reset mask; pulse reset | N/A; no I2C register image is staged | RCC peer; no I2C MMIO required | N/A | success/invalid/state | peer-call trace | `IMPLEMENTED` |
+| `I2C_Init` | Full preflight; snapshot; all staging; dirty commit CR2/CCR/TRISE/CR1 | Extract PE; validate START/STOP action idle; stage timing and baseline | read/write CR1, CR2, CCR, TRISE; read SR2 | BUSY, action state | success/null/invalid/state | timing boundaries, no-write-on-error, MMIO order | `IMPLEMENTED` |
 | `I2C_GetOperationState` | Validate instance/RCC; one CR1 snapshot | Extract PE | read CR1 | PE | OFF/ON/error | valid/error fake register | `CONTRACT-FROZEN` |
 | `I2C_SetOperationState` | Validate state/config/BUSY; one CR1 image; stage/write | Stage PE | read/write CR1 | PE, BUSY, START/STOP | success/error | preservation/action checks | `CONTRACT-FROZEN` |
 | `I2C_MasterTransmit` | Preflight; BUSY; START/address; TX loop; BTF; STOP; cleanup | Address byte, errors, CR1 actions, W0C ack | CR1, DR, SR1, SR2 | SB, ADDR, TXE, BTF; AF/BERR/ARLO/OVR/TIMEOUT | exact result/progress | full event traces and injected failures | `CONTRACT-FROZEN` |

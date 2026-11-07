@@ -44,12 +44,10 @@
 #define I2C_CODEC_FAST_16_9_CCR_MIN				((reg) 1U)
 /** @brief Maximum CCR value @def I2C_CODEC_CCR_MAX */
 #define I2C_CODEC_CCR_MAX						((reg) 4095U)
-/** @brief 88 kHz SCL target in hertz @def I2C_CODEC_SCL_88_KHZ */
-#define I2C_CODEC_SCL_88_KHZ					((reg) 88000U)
 /** @brief 100 kHz SCL target in hertz @def I2C_CODEC_SCL_100_KHZ */
-#define I2C_CODEC_SCL_100_KHZ					((reg) 100000U)
+#define I2C_CODEC_SCL_100_KHZ					FREQ_100kHz
 /** @brief 400 kHz SCL target in hertz @def I2C_CODEC_SCL_400_KHZ */
-#define I2C_CODEC_SCL_400_KHZ					((reg) 400000U)
+#define I2C_CODEC_SCL_400_KHZ					((frequency_t) (FREQ_100kHz << 2U))
 /** @brief SCL rise time in nanoseconds @def I2C_CODEC_SCL_RISE_TIME_NS */
 #define I2C_CODEC_SCL_RISE_TIME_NS				((reg) 300U)
 /** @brief Nanoseconds per microsecond @def I2C_CODEC_NS_PER_US */
@@ -116,8 +114,8 @@ driver_status_t Codec_I2C_StageTiming
 )
 {
 	// Local Variables
-	reg freqMHz = 0U;
-	reg sclHz = 0U;
+	frequency_t freqMHz = 0U;
+	frequency_t sclHz = 0U;
 	reg ccrValue = 0U;
 	reg triseValue = 0U;
 	uint8_t isFastMode = 0U;
@@ -127,59 +125,40 @@ driver_status_t Codec_I2C_StageTiming
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
-
-	// Validate Speed Preset
-	if (!I2C_IS_VALID_SPEED_PRESET(pConfig->bus_speed))
+	// Validate Input Parameters
+	if ((I2C_IS_VALID_CONFIG(pConfig) == 0U) || ((apb1FrequencyHz % FREQ_1MHz) != 0U))
 	{
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
-	// Validate Fast Duty when Fast mode
-	if (pConfig->bus_speed == I2C_SPEED_PRESET_400_KHZ)
-	{
-		if (!I2C_IS_VALID_FAST_DUTY(pConfig->fast_mode_duty))
-		{
-			return DRIVER_STATUS_ERROR_INVALID_ARG;
-		}
-		isFastMode = 1U;
-	}
-
-	// APB1 must be an integer MHz value
-	if ((apb1FrequencyHz % I2C_CODEC_HZ_PER_MHZ) != 0U)
-	{
-		return DRIVER_STATUS_ERROR_INVALID_ARG;
-	}
-
-	freqMHz = (reg)(apb1FrequencyHz / I2C_CODEC_HZ_PER_MHZ);
+	//! Resolve the speed mode from the public selector
+	isFastMode = (pConfig->busMode == I2C_BUS_FAST_MODE) ? 1U : 0U;
+	freqMHz = (frequency_t)(apb1FrequencyHz / FREQ_1MHz);
 
 	// Range check
-	if (isFastMode != 0U)
+	if (pConfig->busMode == I2C_BUS_FAST_MODE)
 	{
 		if ((freqMHz < I2C_CODEC_FAST_MODE_MIN_FREQ_MHZ) || (freqMHz > I2C_CODEC_MAX_FREQ_MHZ))
 		{
-			return DRIVER_STATUS_ERROR_INVALID_ARG;
+			return DRIVER_STATUS_ERROR_STATE;
 		}
 	}
 	else
 	{
 		if ((freqMHz < I2C_CODEC_STD_MODE_MIN_FREQ_MHZ) || (freqMHz > I2C_CODEC_MAX_FREQ_MHZ))
 		{
-			return DRIVER_STATUS_ERROR_INVALID_ARG;
+			return DRIVER_STATUS_ERROR_STATE;
 		}
 	}
 
-	// Determine SCL target
-	if (pConfig->bus_speed == I2C_SPEED_PRESET_88_KHZ)
+	// Determine SCL target from the admitted mode (Standard = 100 kHz, Fast = 400 kHz).
+	if (isFastMode != 0U)
 	{
-		sclHz = I2C_CODEC_SCL_88_KHZ;
-	}
-	else if (pConfig->bus_speed == I2C_SPEED_PRESET_100_KHZ)
-	{
-		sclHz = I2C_CODEC_SCL_100_KHZ;
+		sclHz = I2C_CODEC_SCL_400_KHZ;
 	}
 	else
 	{
-		sclHz = I2C_CODEC_SCL_400_KHZ;
+		sclHz = I2C_CODEC_SCL_100_KHZ;
 	}
 
 	// Ceiling-division: add (divisor - 1) before integer division so a non-exact
@@ -201,13 +180,13 @@ driver_status_t Codec_I2C_StageTiming
 	}
 	else
 	{
-		if (pConfig->fast_mode_duty == I2C_FAST_DUTY_2_1)
+		if (pConfig->fastModeDuty == I2C_FAST_DUTY_2_1)
 		{
 			// CCR = ceil(PCLK1 / (3 * SCL))
 			ccrValue = (reg)(((apb1FrequencyHz + (I2C_CODEC_FAST_2_1_CCR_DIVISOR * sclHz) - I2C_CODEC_ONE) / (I2C_CODEC_FAST_2_1_CCR_DIVISOR * sclHz)));
-			if (ccrValue < I2C_CODEC_STD_MODE_CCR_MIN)
+			if (ccrValue < I2C_CODEC_FAST_2_1_CCR_MIN)
 			{
-				ccrValue = I2C_CODEC_STD_MODE_CCR_MIN;
+				ccrValue = I2C_CODEC_FAST_2_1_CCR_MIN;
 			}
 		}
 		else
@@ -235,7 +214,7 @@ driver_status_t Codec_I2C_StageTiming
 	if (isFastMode != 0U)
 	{
 		*pCcrRegImage |= I2C_CCR_FS;
-		if (pConfig->fast_mode_duty == I2C_FAST_DUTY_16_9)
+		if (pConfig->fastModeDuty == I2C_FAST_DUTY_16_9)
 		{
 			*pCcrRegImage |= I2C_CCR_DUTY;
 		}
@@ -285,7 +264,11 @@ driver_status_t Codec_I2C_StageBaseline(reg* const pCr1RegImage, const uint8_t d
 
 uint8_t Codec_I2C_EncodeAddressByte(const i2c_address_t address, const uint8_t isRead)
 {
-	return (uint8_t)(((address & I2C_CODEC_ADDRESS_MASK_7BIT) << I2C_CODEC_ADDRESS_SHIFT) | (isRead != 0U ? I2C_CODEC_ADDRESS_RW_BIT : I2C_CODEC_ZERO));
+	//! The 7-bit target address occupies the high 7 bits of the address byte; the
+	//! LSB is the read/write bit, so the address is left-shifted by one before the
+	//! direction bit is OR-ed in. The address is masked first so a caller-supplied
+	//! shifted or reserved value cannot pollute the R/W bit position.
+	return (uint8_t)(((address & I2C_CODEC_ADDRESS_MASK_7BIT) << I2C_CODEC_ADDRESS_SHIFT) | ((isRead != 0U) ? I2C_CODEC_ADDRESS_RW_BIT : I2C_CODEC_ZERO));
 }
 
 // ==================================================================================================== //
@@ -298,6 +281,9 @@ driver_status_t Codec_I2C_StageStart(reg* const pCr1RegImage)
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
+	//! START is a write-only action bit: setting it in the staged CR1 image drives the
+	//! hardware START condition, and the bit self-clears once the start sequence completes.
+	//! The caller owns the guarantee that no START/STOP action is already pending in CR1.
 	*pCr1RegImage |= I2C_CR1_START;
 	return DRIVER_STATUS_SUCCESS;
 }
@@ -308,6 +294,8 @@ driver_status_t Codec_I2C_StageStop(reg* const pCr1RegImage)
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
+	//! STOP is likewise a write-only action bit: setting it in the staged CR1 image
+	//! requests the hardware STOP condition, which self-clears after the bus is released.
 	*pCr1RegImage |= I2C_CR1_STOP;
 	return DRIVER_STATUS_SUCCESS;
 }
@@ -318,6 +306,9 @@ driver_status_t Codec_I2C_StageAck(reg* const pCr1RegImage, const uint8_t ack)
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
+	//! ACK controls the acknowledge bit sent on the next received address/data byte.
+	//! ACK=1 enables the hardware auto-ack; ACK=0 suppresses it for the final byte of
+	//! a master receive so the slave sees a NACK and releases the bus.
 	if (ack != 0U)
 	{
 		*pCr1RegImage |= I2C_CR1_ACK;
@@ -335,6 +326,8 @@ driver_status_t Codec_I2C_StagePos(reg* const pCr1RegImage, const uint8_t pos)
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
+	//! POS selects the 10-bit acknowledge position mode used only during a two-byte
+	//! master receive: POS=1 before address reception so the second byte drives NACK.
 	if (pos != 0U)
 	{
 		*pCr1RegImage |= I2C_CR1_POS;
@@ -352,6 +345,9 @@ driver_status_t Codec_I2C_StageSoftwareReset(reg* const pCr1RegImage, const uint
 	{
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
+	//! SWRST is a write-only action: setting it aborts the current I2C state machine and
+	//! returns the peripheral to its reset configuration. It is the ES096 recovery tool
+	//! for a failed START; the bit is cleared by writing zero to leave normal operation.
 	if (reset != 0U)
 	{
 		*pCr1RegImage |= I2C_CR1_SWRST;
@@ -360,6 +356,20 @@ driver_status_t Codec_I2C_StageSoftwareReset(reg* const pCr1RegImage, const uint
 	{
 		*pCr1RegImage &= ~I2C_CR1_SWRST;
 	}
+	return DRIVER_STATUS_SUCCESS;
+}
+
+driver_status_t Codec_I2C_ValidateActionIdle(const reg cr1RegImage)
+{
+	//! START and STOP self-clear only after the peripheral has retired the requested
+	//! sequence, so any bit still set means that action is in flight. Reporting it as
+	//! a state failure keeps the raw flag test inside the Codec, where register-field
+	//! knowledge belongs, instead of leaking register bits into the Driver.
+	if ((cr1RegImage & (I2C_CR1_START | I2C_CR1_STOP)) != 0x00000000UL)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
 	return DRIVER_STATUS_SUCCESS;
 }
 
@@ -374,6 +384,9 @@ driver_status_t Codec_I2C_ExtractError(const reg sr1RegImage, i2c_error_t* const
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
+	//! Decode the highest-priority set error flag first: the priority order matches
+	//! RM0008's recommended BERR > ARLO > AF > OVR > PECERR > TIMEOUT > SMBALERT, so a
+	//! transaction that trips several flags reports the dominant cause.
 	if ((sr1RegImage & I2C_SR1_BERR) != 0U)
 	{
 		*pError = I2C_ERROR_BUS_ERROR;
@@ -390,6 +403,10 @@ driver_status_t Codec_I2C_ExtractError(const reg sr1RegImage, i2c_error_t* const
 	{
 		*pError = I2C_ERROR_OVERRUN;
 	}
+	//! PECERR and SMBALERT belong to the deferred SMBus/PMBus domain and have no
+	//! dedicated member in the admitted `i2c_error_t` vocabulary. They are folded into
+	//! BUS_ERROR here so a deferred-domain flag still surfaces as a bus-level failure
+	//! rather than being silently reported as no-error.
 	else if ((sr1RegImage & I2C_SR1_PECERR) != 0U)
 	{
 		*pError = I2C_ERROR_BUS_ERROR;
@@ -417,6 +434,9 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
+	//! SR1 error flags are write-0-to-clear: the staged image writes 0 to every
+	//! selected error flag and 1 to every other writable bit, so unobserved flags are
+	//! preserved and only the caller-acknowledged set is cleared.
 	*pWriteImage = sr1Snapshot & ~errorsToClear;
 
 	return DRIVER_STATUS_SUCCESS;
