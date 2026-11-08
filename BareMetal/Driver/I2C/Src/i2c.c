@@ -142,7 +142,7 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * latched, because the caller still has to preserve and acknowledge it
  * @pre The peripheral is enabled and the caller holds the instance exclusively
  */
-__STATIC driver_status_t _I2C_WaitForEvent
+__STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 (
 	I2C_TypeDef* const			I2Cx,
 	const i2c_event_flag_t		eventFlag,
@@ -161,6 +161,7 @@ __STATIC driver_status_t _I2C_WaitForEvent
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
+	//! Bounded Loop
 	while (*pPollBudget > 0U)
 	{
 		//! One sample per iteration: the same `SR1` image answers both the error
@@ -220,7 +221,7 @@ __STATIC driver_status_t _I2C_WaitForEvent
  * helper always waits for the fixed @ref `I2C_EVENT_FLAG_START_GENERATED` selector
  * @pre The peripheral is enabled and neither `START` nor `STOP` is still pending
  */
-__STATIC driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
+__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
 {
 	// Local Variable
 	reg cr1RegImage = 0x00000000UL;
@@ -235,38 +236,6 @@ __STATIC driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* c
 	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
 
 	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_START_GENERATED, pPollBudget);
-}
-
-/**
- * @brief Requests a STOP condition on the I2C bus
- * @details
- * Reads `CR1`, stages `STOP`, and writes the image unconditionally. The request
- * only asks the peripheral to release the bus once the current byte boundary is
- * reached, so completion is observed separately by @ref `_I2C_WaitForBusIdle`
- * rather than being folded into this call.
- * @param[in] I2Cx I2C peripheral instance
- * Expected values:
- * - @ref `I2C1`
- * - @ref `I2C2`
- * @returns @ref driver_status_t "STOP request status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP was requested
- * @note No failure other than an internal Codec pointer rejection is reachable,
- * because this helper owns the register image it passes on
- * @pre The peripheral is enabled, still master, and at a byte boundary
- */
-__STATIC driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx)
-{
-	// Local Variable
-	reg cr1RegImage = 0x00000000UL;
-
-	//! `STOP` is an action bit that hardware clears once the condition is on the
-	//! wire, so this write is never skipped even when the staged image equals the
-	//! snapshot taken just before it.
-	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
-	ASSERT_DRIVER_STATUS(Codec_I2C_StageStop(&cr1RegImage));
-	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
-
-	return DRIVER_STATUS_SUCCESS;
 }
 
 /**
@@ -309,6 +278,48 @@ __STATIC driver_status_t _I2C_WaitForBusIdle(I2C_TypeDef* const I2Cx, uint32_t* 
 	}
 
 	return DRIVER_STATUS_ERROR_TIMEOUT;
+}
+
+/**
+ * @brief Requests a STOP condition and waits until the bus is released
+ * @details
+ * Reads `CR1`, stages `STOP`, and writes the image unconditionally, so the
+ * equal-value write of an already-pending request is never suppressed. `STOP`
+ * is only a request: hardware retires it at the next byte boundary and clears
+ * `CR1.STOP` itself, so this helper closes the request with the same bounded
+ * `SR2.BUSY` wait the caller's transaction budget feeds, and returns success
+ * only after the lines are observed free.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @param[in,out] pPollBudget Remaining transaction poll budget
+ * Expected values:
+ * - Non-`NULL`: Decremented once per `SR2` sample
+ * @returns @ref driver_status_t "STOP request status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP was requested and the bus was observed idle
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: `BUSY` stayed set until @p `pPollBudget` was exhausted
+ * @note No failure other than these is reachable, because this helper owns the
+ * register image it passes on and always waits on the fixed idle condition
+ * @pre The peripheral is enabled, still master, and at a byte boundary
+ */
+__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
+{
+	// Local Variable
+	reg cr1RegImage = 0x00000000UL;
+
+	//! `STOP` is an action bit that hardware clears once the condition is on the
+	//! wire, so this write is never skipped even when the staged image equals the
+	//! snapshot taken just before it.
+	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
+	ASSERT_DRIVER_STATUS(Codec_I2C_StageStop(&cr1RegImage));
+	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
+
+	//! The request only releases the bus at the next byte boundary, so the bounded
+	//! wait is what proves completion; folding it here keeps every caller's "STOP
+	//! succeeded" answer backed by the same idle evidence.
+	return _I2C_WaitForBusIdle(I2Cx, pPollBudget);
 }
 
 /**
@@ -381,16 +392,11 @@ __STATIC driver_status_t _I2C_AcknowledgeErrors
 		(Codec_I2C_ValidateActionIdle(LL_I2C_ReadCR1(I2Cx)) == DRIVER_STATUS_SUCCESS) &&
 		(Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS))
 	{
-		//! Recovery is best effort by contract. Both outcomes are inspected so a
-		//! rejected STOP request does not masquerade as a bus that simply never went
-		//! idle, but neither can replace the cause reported to the caller.
-		if (_I2C_GenerateStop(I2Cx) == DRIVER_STATUS_SUCCESS)
-		{
-			//! A bus that stays busy after the STOP request is the stuck-BUSY case
-			//! ES096 leaves to board-level recovery; this bounded wait therefore adds
-			//! no failure code of its own and lets the primary cause stand.
-			(void) _I2C_WaitForBusIdle(I2Cx, pPollBudget);
-		}
+		//! Recovery is best effort by contract: a stuck-busy result from the STOP
+		//! helper is the case ES096 leaves to board-level recovery, so the whole
+		//! result is discarded and can never replace the cause reported to the
+		//! caller.
+		(void) _I2C_GenerateStop(I2Cx, pPollBudget);
 	}
 
 	//! Acknowledge the observed error set with a semantic write-zero-to-clear image.
@@ -741,12 +747,7 @@ driver_status_t I2C_MasterTransmit
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
 	{
 		LL_I2C_WriteDR(I2Cx, (reg) Codec_I2C_EncodeAddressByte(slaveAddress, 0U));
-		transactionStatus = _I2C_WaitForEvent
-		(
-			I2Cx,
-			I2C_EVENT_FLAG_ADDRESS_SENT,
-			&pollBudget
-		);
+		transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_ADDRESS_SENT, &pollBudget);
 	}
 
 	//! EV6: `ADDR` is released only by the ordered `SR1`-then-`SR2` read pair, so this
@@ -794,14 +795,10 @@ driver_status_t I2C_MasterTransmit
 
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
 	{
-		transactionStatus = _I2C_GenerateStop(I2Cx);
-	}
-
-	//! STOP is only a request, so the bounded `BUSY` wait is what proves the lines
-	//! were actually released before this call reports success.
-	if (transactionStatus == DRIVER_STATUS_SUCCESS)
-	{
-		transactionStatus = _I2C_WaitForBusIdle(I2Cx, &pollBudget);
+		//! The STOP helper itself closes with the bounded `BUSY` wait, so this one
+		//! call both releases the lines and proves they were actually released
+		//! before the transaction below can report success.
+		transactionStatus = _I2C_GenerateStop(I2Cx, &pollBudget);
 	}
 
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
