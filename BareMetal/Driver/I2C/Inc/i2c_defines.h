@@ -128,11 +128,13 @@ typedef uint8_t								i2c_fast_duty_t;
  * @brief Admitted target-address range and transaction event-flag selectors
  * @details
  * Bounds the 7-bit target-address vocabulary accepted by the synchronous
- * transfer APIs and validates the `SR1` event masks the Driver may wait for.
- * Reserved addresses are excluded at the Driver boundary so a transfer request
- * can never silently address a reserved device or another controller. The
- * event selectors keep the raw status bits in the Codec while still letting
- * the Driver name exactly which hardware event a step is waiting for.
+ * transfer APIs and validates the status event selectors the Driver may wait
+ * for. Reserved addresses are excluded at the Driver boundary so a transfer
+ * request can never silently address a reserved device or another controller.
+ * The event selectors keep the raw status bits in the Codec while still
+ * letting the Driver name exactly which hardware event a step is waiting for;
+ * among them, @ref `I2C_EVENT_FLAG_BUS_IDLE` names an `SR2` condition rather
+ * than an `SR1` mask.
  * @{
  */
 
@@ -157,23 +159,27 @@ typedef uint8_t								i2c_fast_duty_t;
 
 /**
  * @def I2C_IS_VALID_EVENT_FLAG
- * @brief Validates an `SR1` event-flag selector
+ * @brief Validates a status event-flag selector
  * @details
  * Admits exactly the published selectors, including the composite
  * @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` mask that the transmit tail needs so
  * a partially satisfied completion request cannot be mistaken for an unknown
- * selector.
- * @param[in] eventFlag Event-flag mask to validate
+ * selector, and the @ref `I2C_EVENT_FLAG_BUS_IDLE` selector that names the
+ * `SR2` bus condition. The validator only proves the vocabulary; it does not
+ * state which register a selector belongs to, so every consumer must route
+ * @ref `I2C_EVENT_FLAG_BUS_IDLE` away from raw `SR1` bit tests.
+ * @param[in] eventFlag Event-flag selector to validate
  * @returns I2C Event-Flag Validation Result
- * @retval - `0x00U`: Mask is not an admitted selector
- * @retval - `0x01U`: Mask is an admitted selector
+ * @retval - `0x00U`: Selector is not an admitted selector
+ * @retval - `0x01U`: Selector is an admitted selector
  */
 #define I2C_IS_VALID_EVENT_FLAG(eventFlag)	\
 	(((eventFlag) == I2C_EVENT_FLAG_START_GENERATED) ||	\
 	((eventFlag) == I2C_EVENT_FLAG_ADDRESS_SENT) ||	\
 	((eventFlag) == I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED) ||	\
 	((eventFlag) == I2C_EVENT_FLAG_DATA_REGISTER_EMPTY) ||	\
-	((eventFlag) == I2C_EVENT_FLAG_TRANSFER_COMPLETE))
+	((eventFlag) == I2C_EVENT_FLAG_TRANSFER_COMPLETE) ||	\
+	((eventFlag) == I2C_EVENT_FLAG_BUS_IDLE))
 
 /** @} */ // I2C_02_Defines_04_Transfers
 

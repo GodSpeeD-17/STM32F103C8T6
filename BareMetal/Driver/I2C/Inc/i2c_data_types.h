@@ -112,8 +112,10 @@ typedef uint8_t								i2c_error_t;
  * raw register bits to the Driver. A single-bit mask names one hardware event;
  * a composite mask names an event that is only complete once every selected
  * flag is set, which is how the transmit tail expresses RM0008's EV8_2
- * (`TXE` together with `BTF`). The Codec converts this selector into the flag
- * test, so the Driver never performs register-field work.
+ * (`TXE` together with `BTF`). @ref `I2C_EVENT_FLAG_BUS_IDLE` is the single
+ * exception that names an `SR2` condition instead, because bus ownership has
+ * no `SR1` flag. The Codec converts each selector into its flag test, so the
+ * Driver never performs register-field work.
  */
 typedef uint16_t								i2c_event_flag_t;
 
@@ -170,6 +172,23 @@ typedef uint16_t								i2c_event_flag_t;
  * @def I2C_EVENT_FLAG_TRANSFER_COMPLETE
  */
 #define I2C_EVENT_FLAG_TRANSFER_COMPLETE			((i2c_event_flag_t) (I2C_EVENT_FLAG_DATA_REGISTER_EMPTY | I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED))
+
+/**
+ * @brief Peripherals released the bus (`I2Cx_SR2.BUSY` observed clear)
+ * @details
+ * The one selector that names an `SR2` condition instead of an `SR1` mask,
+ * because bus ownership has no `SR1` flag at all. Its value is defined against
+ * the `SR2` register layout (`BUSY`, bit 1), so it must never be bit-tested
+ * against an `SR1` image; the Driver's wait helper branches on the selector
+ * explicitly and answers it from `Codec_I2C_IsBusBusy`, keeping the raw bit
+ * knowledge in the Codec. The helper reads `SR2` only for this selector,
+ * because RM0008's ordered read-`SR1`-then-read-`SR2` pair also releases a
+ * latched `ADDR` and clock stretching, so the `EV6` clear stays an explicit,
+ * visible transaction step at the call site instead of becoming a speculative
+ * side effect inside the generic wait.
+ * @def I2C_EVENT_FLAG_BUS_IDLE
+ */
+#define I2C_EVENT_FLAG_BUS_IDLE						((i2c_event_flag_t) 0x0002U)
 
 /** @} */ // I2C_02_DataTypes
 

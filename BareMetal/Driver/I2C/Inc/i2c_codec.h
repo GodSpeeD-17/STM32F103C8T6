@@ -307,11 +307,11 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
  * - Any valid `I2Cx_SR1` image captured by the Driver
  * @param[in] eventFlag Event-flag selector to test
  * Accepted values:
- * - Any selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`
+ * - Any `SR1` selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`
  * @returns @ref driver_status_t "SR1 event-pending validation status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: Every selected flag is set
  * @retval - @ref `DRIVER_STATUS_ERROR`: At least one selected flag is clear
- * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `eventFlag` is not an admitted selector
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `eventFlag` is not an admitted selector, or it is the @ref `I2C_EVENT_FLAG_BUS_IDLE` selector because bus idleness is an `SR2` condition
  * @note This Codec performs no MMIO and does not validate the instance
  */
 driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_flag_t eventFlag);

@@ -113,7 +113,7 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
 // ==================================================================================================== //
 
 /**
- * @brief Waits for one SR1 event inside the shared transaction poll budget
+ * @brief Waits for one bounded status event inside the shared poll budget
  * @details
  * Samples `SR1` once per iteration and decodes the error flags before testing
  * @p `eventFlag`, so a hardware error ends the wait immediately instead of
@@ -122,18 +122,26 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * loop therefore cannot outlive the single timeout the public API promised.
  * A composite selector such as @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` only
  * succeeds once every selected flag is set together.
+ * @ref `I2C_EVENT_FLAG_BUS_IDLE` is the sole selector answered from `SR2`, and
+ * only for it is `SR2` read: RM0008's ordered read-`SR1`-then-read-`SR2` pair
+ * also releases a latched `ADDR` and clock stretching, so a speculative `SR2`
+ * sample inside a wait whose selector needs no address release could clear an
+ * `ADDR` that a later transaction step is required to clear explicitly. The
+ * gated sample keeps the `EV6` clear a visible, call-site-owned action while
+ * still letting this one helper serve `SR1` events and the bus-idle condition.
  * @param[in] I2Cx I2C peripheral instance
  * Expected values:
  * - @ref `I2C1`
  * - @ref `I2C2`
- * @param[in] eventFlag `SR1` event selector to wait for
+ * @param[in] eventFlag Status event selector to wait for
  * Accepted values:
- * - Any selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`
+ * - Any selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`, including the
+ *   @ref `I2C_EVENT_FLAG_BUS_IDLE` selector naming the `SR2` bus condition
  * @param[in,out] pPollBudget Remaining transaction poll budget
  * Expected values:
  * - Non-`NULL`: Decremented once per `SR1` sample
  * @returns @ref driver_status_t "Event-wait status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: Every selected event flag was observed
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: The selected event was observed
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `eventFlag` is not an admitted selector
  * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: An `SR1` error flag was observed first
@@ -151,6 +159,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 {
 	// Local Variables
 	reg sr1RegImage = 0x00000000UL;
+	reg sr2RegImage = 0x00000000UL;
 	i2c_error_t sampledError = I2C_ERROR_NONE;
 	driver_status_t sampleStatus = DRIVER_STATUS_ERROR;
 
@@ -179,6 +188,21 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		if (sampledError != I2C_ERROR_NONE)
 		{
 			return DRIVER_STATUS_ERROR_FAIL;
+		}
+
+		//! `BUS_IDLE` is answered from `SR2` and is the only selector that earns an
+		//! `SR2` read inside this loop, so the address-releasing read pair stays
+		//! exclusive to the call site that actually performs EV6.
+		if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
+		{
+			//! The Codec reports "busy" as success, so the idle answer is the error
+			//! value and every other outcome keeps polling.
+			sr2RegImage = LL_I2C_ReadSR2(I2Cx);
+			if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
+			{
+				return DRIVER_STATUS_SUCCESS;
+			}
+			continue;
 		}
 
 		sampleStatus = Codec_I2C_IsEventPending(sr1RegImage, eventFlag);
@@ -239,56 +263,15 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx,
 }
 
 /**
- * @brief Waits until the peripheral releases the bus
- * @details
- * Polls `SR2.BUSY` until the line is free or the shared budget is exhausted.
- * `BUSY` is the only flag that reports line ownership instead of transfer
- * progress, so it is what proves a requested STOP actually took effect.
- * @param[in] I2Cx I2C peripheral instance
- * Expected values:
- * - @ref `I2C1`
- * - @ref `I2C2`
- * @param[in,out] pPollBudget Remaining transaction poll budget
- * Expected values:
- * - Non-`NULL`: Decremented once per `SR2` sample
- * @returns @ref driver_status_t "Bus-idle wait status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: `BUSY` was observed clear
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
- * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: `BUSY` stayed set until @p `pPollBudget` was exhausted
- * @pre The peripheral is enabled and the caller owns the instance
- */
-__STATIC driver_status_t _I2C_WaitForBusIdle(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
-{
-	//! A missing caller budget would make this wait unbounded, so it is refused
-	//! before the first sample.
-	if (pPollBudget == NULL)
-	{
-		return DRIVER_STATUS_ERROR_NULL_PTR;
-	}
-
-	while (*pPollBudget > 0U)
-	{
-		//! The Codec reports "busy" as success, so the idle answer is the error
-		//! value and every other outcome keeps polling.
-		if (Codec_I2C_IsBusBusy(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_ERROR)
-		{
-			return DRIVER_STATUS_SUCCESS;
-		}
-		(*pPollBudget)--;
-	}
-
-	return DRIVER_STATUS_ERROR_TIMEOUT;
-}
-
-/**
  * @brief Requests a STOP condition and waits until the bus is released
  * @details
  * Reads `CR1`, stages `STOP`, and writes the image unconditionally, so the
  * equal-value write of an already-pending request is never suppressed. `STOP`
  * is only a request: hardware retires it at the next byte boundary and clears
- * `CR1.STOP` itself, so this helper closes the request with the same bounded
- * `SR2.BUSY` wait the caller's transaction budget feeds, and returns success
- * only after the lines are observed free.
+ * `CR1.STOP` itself, so this helper closes the request through the same
+ * bounded wait helper the START path uses, selecting the `SR2`
+ * @ref `I2C_EVENT_FLAG_BUS_IDLE` condition, and returns success only after
+ * the lines are observed free.
  * @param[in] I2Cx I2C peripheral instance
  * Expected values:
  * - @ref `I2C1`
@@ -299,6 +282,7 @@ __STATIC driver_status_t _I2C_WaitForBusIdle(I2C_TypeDef* const I2Cx, uint32_t* 
  * @returns @ref driver_status_t "STOP request status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP was requested and the bus was observed idle
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: An `SR1` error flag was observed during the idle wait
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: `BUSY` stayed set until @p `pPollBudget` was exhausted
  * @note No failure other than these is reachable, because this helper owns the
  * register image it passes on and always waits on the fixed idle condition
@@ -317,9 +301,9 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, 
 	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
 
 	//! The request only releases the bus at the next byte boundary, so the bounded
-	//! wait is what proves completion; folding it here keeps every caller's "STOP
-	//! succeeded" answer backed by the same idle evidence.
-	return _I2C_WaitForBusIdle(I2Cx, pPollBudget);
+	//! wait is what proves completion; routing it through the shared helper keeps
+	//! every caller's "STOP succeeded" answer backed by the same idle evidence.
+	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_BUS_IDLE, pPollBudget);
 }
 
 /**

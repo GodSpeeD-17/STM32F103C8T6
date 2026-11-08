@@ -681,10 +681,13 @@ The hardware design balances:
 
 ## Master Transaction Model
 
-All `wait(flag)` steps mean: sample SR1 once, decode errors first, consume one
-transaction poll, then test the required event. No step can loop without
-budget. Error cleanup never calls an assertion-style early-return macro after
-the first transaction mutation.
+All `wait(flag)` steps share one bounded helper: sample `SR1` once, decode
+errors first, consume one transaction poll, then test the required event. The
+`SR2`-scoped `BUS_IDLE` selector additionally samples `SR2`, but only for that
+selector, because the read-`SR1`-then-read-`SR2` pair would otherwise release
+a latched `ADDR` and clock stretching that the `EV6` step must clear
+explicitly. No step can loop without budget. Error cleanup never calls an
+assertion-style early-return macro after the first transaction mutation.
 
 ### Common START and address phase
 

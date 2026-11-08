@@ -453,6 +453,15 @@ driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
+	//! `BUS_IDLE` names an `SR2` condition, so testing it against an `SR1` image is
+	//! a vocabulary misuse whose 0x0002 value would false-match a latched `ADDR`.
+	//! Refusing it here keeps every caller free to wait through one generic helper
+	//! without that helper risking a wrong register test.
+	if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
 	//! Comparing the masked image against the selector itself means "all selected
 	//! flags set". For a single-flag selector that is the ordinary set test; for the
 	//! composite completion selector it proves TXE and BTF are both asserted, so a
