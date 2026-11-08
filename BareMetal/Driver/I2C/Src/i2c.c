@@ -122,13 +122,14 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * loop therefore cannot outlive the single timeout the public API promised.
  * A composite selector such as @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` only
  * succeeds once every selected flag is set together.
- * @ref `I2C_EVENT_FLAG_BUS_IDLE` is the sole selector answered from `SR2`, and
- * only for it is `SR2` read: RM0008's ordered read-`SR1`-then-read-`SR2` pair
- * also releases a latched `ADDR` and clock stretching, so a speculative `SR2`
- * sample inside a wait whose selector needs no address release could clear an
- * `ADDR` that a later transaction step is required to clear explicitly. The
- * gated sample keeps the `EV6` clear a visible, call-site-owned action while
- * still letting this one helper serve `SR1` events and the bus-idle condition.
+ * Exactly two selectors earn an `SR2` sample, each for a hardware reason:
+ * @ref `I2C_EVENT_FLAG_BUS_IDLE` reads `SR2` every iteration because bus
+ * ownership has no `SR1` flag, and @ref `I2C_EVENT_FLAG_ADDRESS_SENT` reads it
+ * on the completing iteration because RM0008's ordered
+ * read-`SR1`-then-read-`SR2` pair is what releases `ADDR` and ends `SCL`
+ * stretching. Every other wait stays `SR1`-only, since a speculative `SR2`
+ * sample could clear an `ADDR` that that transaction step is not the one
+ * owning the address release.
  * @param[in] I2Cx I2C peripheral instance
  * Expected values:
  * - @ref `I2C1`
@@ -148,6 +149,12 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: @p `pPollBudget` was exhausted
  * @note The error flag behind an @ref `DRIVER_STATUS_ERROR_FAIL` result is left
  * latched, because the caller still has to preserve and acknowledge it
+ * @note The @ref `I2C_EVENT_FLAG_ADDRESS_SENT` selector expresses the
+ * master-transmitter `EV6` only: the wait releases `ADDR` by the ordered pair
+ * and proves master mode from that same `SR2` sample. The receive-path
+ * `EV6_3` transaction that must interpose `CR1` action writes between the two
+ * reads cannot reuse this selector and will get its own step when receive is
+ * admitted
  * @pre The peripheral is enabled and the caller holds the instance exclusively
  */
 __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
@@ -181,18 +188,15 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		//! Errors are decoded first because a NACK or bus error also leaves the
 		//! awaited event clear; reporting the timeout instead would hide the cause.
 		sampleStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
-		if (sampleStatus != DRIVER_STATUS_SUCCESS)
-		{
-			return sampleStatus;
-		}
+		ASSERT_DRIVER_STATUS(sampleStatus);
 		if (sampledError != I2C_ERROR_NONE)
 		{
 			return DRIVER_STATUS_ERROR_FAIL;
 		}
 
-		//! `BUS_IDLE` is answered from `SR2` and is the only selector that earns an
-		//! `SR2` read inside this loop, so the address-releasing read pair stays
-		//! exclusive to the call site that actually performs EV6.
+		//! `BUS_IDLE` is answered from `SR2` and takes an `SR2` read every
+		//! iteration; `ADDR` cannot be latched while the bus is being released,
+		//! so the pair-clear side effect has no address to harm here.
 		if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
 		{
 			//! The Codec reports "busy" as success, so the idle answer is the error
@@ -208,6 +212,19 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		sampleStatus = Codec_I2C_IsEventPending(sr1RegImage, eventFlag);
 		if (sampleStatus == DRIVER_STATUS_SUCCESS)
 		{
+			//! EV6: the `SR1` read above is the first half of the mandatory ordered
+			//! pair, so this `SR2` sample releases `ADDR` and ends `SCL` stretching
+			//! in the same iteration the flag was observed; its master bit also
+			//! proves the peripheral still owns the bus before the phase that
+			//! follows starts.
+			if (eventFlag == I2C_EVENT_FLAG_ADDRESS_SENT)
+			{
+				sr2RegImage = LL_I2C_ReadSR2(I2Cx);
+				if (Codec_I2C_IsMasterMode(sr2RegImage) != DRIVER_STATUS_SUCCESS)
+				{
+					return DRIVER_STATUS_ERROR_FAIL;
+				}
+			}
 			return DRIVER_STATUS_SUCCESS;
 		}
 		//! Only the plain "not pending yet" answer may keep polling: a rejected
@@ -731,18 +748,10 @@ driver_status_t I2C_MasterTransmit
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
 	{
 		LL_I2C_WriteDR(I2Cx, (reg) Codec_I2C_EncodeAddressByte(slaveAddress, 0U));
+		//! EV6 completes inside the wait: the ordered `SR1`-then-`SR2` pair there
+		//! releases `ADDR` (ending `SCL` stretching) and its master bit proves the
+		//! address phase still owned the bus, so no separate status sample follows.
 		transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_ADDRESS_SENT, &pollBudget);
-	}
-
-	//! EV6: `ADDR` is released only by the ordered `SR1`-then-`SR2` read pair, so this
-	//! single `SR2` sample is mandatory; its master bit also proves the address phase
-	//! still owned the bus before the payload starts.
-	if (transactionStatus == DRIVER_STATUS_SUCCESS)
-	{
-		if (Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) != DRIVER_STATUS_SUCCESS)
-		{
-			transactionStatus = DRIVER_STATUS_ERROR_FAIL;
-		}
 	}
 
 	//! EV8: with `ADDR` released the peripheral accepts one byte per `TXE`, so the

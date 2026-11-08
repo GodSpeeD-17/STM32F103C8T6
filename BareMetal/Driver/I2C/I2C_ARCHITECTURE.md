@@ -682,12 +682,16 @@ The hardware design balances:
 ## Master Transaction Model
 
 All `wait(flag)` steps share one bounded helper: sample `SR1` once, decode
-errors first, consume one transaction poll, then test the required event. The
-`SR2`-scoped `BUS_IDLE` selector additionally samples `SR2`, but only for that
-selector, because the read-`SR1`-then-read-`SR2` pair would otherwise release
-a latched `ADDR` and clock stretching that the `EV6` step must clear
-explicitly. No step can loop without budget. Error cleanup never calls an
-assertion-style early-return macro after the first transaction mutation.
+errors first, consume one transaction poll, then test the required event.
+Exactly two selectors additionally sample `SR2`: `BUS_IDLE` every iteration
+(bus ownership has no `SR1` flag; `ADDR` cannot be latched while the bus is
+being released), and `ADDRESS_SENT` on the completing iteration, where the
+ordered read-`SR1`-then-read-`SR2` pair is the mandatory `EV6` release plus
+the master-mode proof. Every other wait stays `SR1`-only, because a
+speculative `SR2` sample would release a latched `ADDR` that the step owning
+the address release must clear explicitly. No step can loop without budget.
+Error cleanup never calls an assertion-style early-return macro after the
+first transaction mutation.
 
 ### Common START and address phase
 
@@ -698,8 +702,10 @@ assertion-style early-return macro after the first transaction mutation.
    remains application-owned until then.
 4. Read SR1 as the first half of EV5, then write one encoded address byte to DR.
 5. Wait for `ADDR=1` or AF/error. AF before ADDR is address NACK.
-6. Clear ADDR only by the ordered SR1 then SR2 reads. SR2 is never sampled
-   speculatively after an SR1 read.
+6. The `ADDRESS_SENT` wait itself clears `ADDR` with the ordered `SR1` then
+   `SR2` reads and proves master mode from that `SR2` sample. The receive-path
+   `EV6_3` step that must interpose `CR1` writes between the two reads gets its
+   own transaction and never reuses the selector. No other wait samples `SR2`.
 
 ### Master write
 

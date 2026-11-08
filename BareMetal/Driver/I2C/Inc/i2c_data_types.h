@@ -136,7 +136,12 @@ typedef uint16_t								i2c_event_flag_t;
  * Set by hardware after the address byte has shifted out and the target has
  * acknowledged it, which is the point where the peripheral may stretch `SCL`.
  * A master clears it with the ordered `SR1` then `SR2` read pair, so the flag
- * bounds the address phase instead of being cleared speculatively.
+ * bounds the address phase instead of being cleared speculatively. The
+ * Driver's wait helper answers this selector as one coherent
+ * master-transmitter step: the pair inside the wait performs the mandatory
+ * release and the same `SR2` sample proves master mode. The receive-path
+ * `EV6_3` sequence that must interpose `CR1` action writes between the two
+ * reads cannot reuse the selector.
  * @def I2C_EVENT_FLAG_ADDRESS_SENT
  */
 #define I2C_EVENT_FLAG_ADDRESS_SENT					((i2c_event_flag_t) 0x0002U)
@@ -181,11 +186,11 @@ typedef uint16_t								i2c_event_flag_t;
  * the `SR2` register layout (`BUSY`, bit 1), so it must never be bit-tested
  * against an `SR1` image; the Driver's wait helper branches on the selector
  * explicitly and answers it from `Codec_I2C_IsBusBusy`, keeping the raw bit
- * knowledge in the Codec. The helper reads `SR2` only for this selector,
- * because RM0008's ordered read-`SR1`-then-read-`SR2` pair also releases a
- * latched `ADDR` and clock stretching, so the `EV6` clear stays an explicit,
- * visible transaction step at the call site instead of becoming a speculative
- * side effect inside the generic wait.
+ * knowledge in the Codec. The helper reads `SR2` for this selector every
+ * iteration — `ADDR` cannot be latched while the bus is being released, so the
+ * pair-clear side effect has no address to harm — and it is the only other
+ * selector, beside the completing-iteration sample of
+ * @ref `I2C_EVENT_FLAG_ADDRESS_SENT`, that earns an `SR2` read at all.
  * @def I2C_EVENT_FLAG_BUS_IDLE
  */
 #define I2C_EVENT_FLAG_BUS_IDLE						((i2c_event_flag_t) 0x0002U)
