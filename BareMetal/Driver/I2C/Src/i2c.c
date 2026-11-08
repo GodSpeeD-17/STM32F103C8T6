@@ -226,19 +226,20 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		if ((eventFlag == I2C_EVENT_FLAG_ADDRESS_SENT) || (eventFlag == I2C_EVENT_FLAG_BUS_IDLE))
 		{
 			sr2RegImage = LL_I2C_ReadSR2(I2Cx);
-		}
-
-		//! The Codec reports "busy" as success, so the idle answer is the error
-		//! value and every other outcome keeps polling.
-		if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
-		{
-			if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
+			
+			//! The Codec reports "busy" as success, so the idle answer is the error
+			//! value and every other outcome keeps polling.
+			if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
 			{
-				return DRIVER_STATUS_SUCCESS;
+				if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
+				{
+					return DRIVER_STATUS_SUCCESS;
+				}
+				continue;
 			}
-			continue;
 		}
 
+		//! Any Event Pending?
 		sampleStatus = Codec_I2C_IsEventPending(sr1RegImage, eventFlag);
 		if (sampleStatus == DRIVER_STATUS_SUCCESS)
 		{
@@ -256,6 +257,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 			}
 			return DRIVER_STATUS_SUCCESS;
 		}
+
 		//! Only the plain "not pending yet" answer may keep polling: a rejected
 		//! selector is a programming error and must not burn the whole budget.
 		if (sampleStatus != DRIVER_STATUS_ERROR)
@@ -264,6 +266,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		}
 	}
 
+	//! Timeout: the caller's budget is exhausted and the awaited event never appeared
 	return DRIVER_STATUS_ERROR_TIMEOUT;
 }
 
@@ -291,7 +294,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
  * helper always waits for the fixed @ref `I2C_EVENT_FLAG_START_GENERATED` selector
  * @pre The peripheral is enabled and neither `START` nor `STOP` is still pending
  */
-__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
+__STATIC driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
 {
 	// Local Variable
 	reg cr1RegImage = 0x00000000UL;
@@ -337,7 +340,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx,
  * register image it passes on and always waits on the fixed idle condition
  * @pre The peripheral is enabled, still master, and at a byte boundary
  */
-__STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
+__STATIC driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
 {
 	// Local Variable
 	reg cr1RegImage = 0x00000000UL;
@@ -362,10 +365,14 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, 
  * @details
  * The single cleanup path for every failure after START was requested. It
  * snapshots `SR1` first, because acknowledging a flag would erase the only
- * record of why the transaction stopped. The snapshot is decoded into the
- * primary error, an abort STOP is requested only when the hardware can still
- * legally accept one, and the observed error flags are then cleared with a
- * semantic write-zero-to-clear image. Every recovery step is best effort:
+ * record of why the transaction stopped, and decodes that snapshot into the
+ * primary error. The observed error flags are cleared next, so the optional
+ * abort STOP below is issued from a clean `SR1` state and its bounded
+ * bus-idle wait judges recovery on fresh hardware rather than resurrecting
+ * the failure this path is recovering from; the clear also follows RM0008's
+ * NACK handling, which acknowledges `AF` before STOP. An abort STOP is
+ * requested only when the hardware can still legally accept one. Every
+ * recovery step is best effort:
  * @p `primaryStatus` is returned unchanged so a cleanup side effect can never
  * turn a failed transfer into a reported success or replace its cause.
  * @param[in] I2Cx I2C peripheral instance
@@ -412,34 +419,43 @@ __STATIC driver_status_t _I2C_AcknowledgeErrors
 	//! flag that caused this failure would disappear the moment it is cleared.
 	sr1Snapshot = LL_I2C_ReadSR1(I2Cx);
 
-	//! The destination is a local image, so this decode can only fail if the Codec
-	//! contract changes. Treat that as "no primary error" instead of returning
+	//! Decode the snapshot into a local value, so this Codec can only fail if the
+	//! contract changes; treat that as "no primary error" instead of returning
 	//! early and abandoning the acknowledgement and bus release below.
 	if (Codec_I2C_ExtractError(sr1Snapshot, &latchedError) != DRIVER_STATUS_SUCCESS)
 	{
 		latchedError = I2C_ERROR_NONE;
 	}
 
+	//! Acknowledge the observed error set before the abort STOP is requested. The
+	//! write-zero-to-clear image derives from the snapshot, so the decoded set
+	//! stays exact, and clearing first is what lets the STOP helper's idle wait
+	//! actually wait: with the flags still latched its `SR1` sample would report
+	//! the old failure on iteration one and abandon the bus release. This also
+	//! follows RM0008's NACK handling, which clears `AF` before STOP.
+	if (Codec_I2C_StageClearErrors(&sr1WriteImage, sr1Snapshot) == DRIVER_STATUS_SUCCESS)
+	{
+		LL_I2C_WriteSR1(I2Cx, sr1WriteImage);
+	}
+
 	//! An abort STOP is only legal while this peripheral still owns the bus and no
 	//! earlier action is pending. Arbitration loss is excluded explicitly because
-	//! hardware has already released SDA/SCL and returned to slave mode.
-	if ((latchedError != I2C_ERROR_ARBITRATION_LOST) &&
+	//! hardware has already released SDA/SCL and returned to slave mode. By the
+	//! time this runs, the observed error flags from the snapshot are already
+	//! cleared, so the STOP helper's bounded idle wait judges the fresh `SR1`
+	//! state instead of resurrecting the failure this path is recovering from.
+	if
+	(
+		(latchedError != I2C_ERROR_ARBITRATION_LOST) &&
 		(Codec_I2C_ValidateActionIdle(LL_I2C_ReadCR1(I2Cx)) == DRIVER_STATUS_SUCCESS) &&
-		(Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS))
+		(Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS)
+	)
 	{
 		//! Recovery is best effort by contract: a stuck-busy result from the STOP
 		//! helper is the case ES096 leaves to board-level recovery, so the whole
 		//! result is discarded and can never replace the cause reported to the
 		//! caller.
 		(void) _I2C_GenerateStop(I2Cx, pPollBudget);
-	}
-
-	//! Acknowledge the observed error set with a semantic write-zero-to-clear image.
-	//! The Codec owns which flags that set contains, so cleanup cannot clear an
-	//! error it never inspected or leave the observed one latched.
-	if (Codec_I2C_StageClearErrors(&sr1WriteImage, sr1Snapshot) == DRIVER_STATUS_SUCCESS)
-	{
-		LL_I2C_WriteSR1(I2Cx, sr1WriteImage);
 	}
 
 	return primaryStatus;
@@ -794,13 +810,7 @@ driver_status_t I2C_MasterTransmit
 	{
 		for (byteIndex = 0U; byteIndex < size; byteIndex++)
 		{
-			transactionStatus = _I2C_WaitForEvent
-			(
-				I2Cx,
-				I2C_EVENT_FLAG_DATA_REGISTER_EMPTY,
-				&pollBudget,
-				NULL
-			);
+			transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_DATA_REGISTER_EMPTY, &pollBudget, NULL);
 			if (transactionStatus != DRIVER_STATUS_SUCCESS)
 			{
 				break;
@@ -813,13 +823,7 @@ driver_status_t I2C_MasterTransmit
 	//! register, so the STOP requested next cannot truncate the message.
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
 	{
-		transactionStatus = _I2C_WaitForEvent
-		(
-			I2Cx,
-			I2C_EVENT_FLAG_TRANSFER_COMPLETE,
-			&pollBudget,
-			NULL
-		);
+		transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_TRANSFER_COMPLETE, &pollBudget, NULL);
 	}
 
 	if (transactionStatus == DRIVER_STATUS_SUCCESS)
