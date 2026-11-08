@@ -43,25 +43,35 @@ extern "C" {
 
 /**
  * @brief GPIO peripheral instance connected to the Blue Pill on-board LED
- * @def GPIO_OB_LED_PORT
+ * @def BSP_GPIO_OB_LED_PORT
  * @details
  * The active-low on-board LED is fixed to GPIOC. This public board mapping
  * does not enable the port clock or configure the pin by itself.
  * Accepted values:
  * - @ref `GPIOC`: Port containing the Blue Pill on-board LED
  */
-#define GPIO_OB_LED_PORT		(GPIOC)
+#define BSP_GPIO_OB_LED_PORT							GPIOC
 
 /**
  * @brief GPIO pin connected to the Blue Pill on-board LED
- * @def GPIO_OB_LED_PIN
+ * @def BSP_GPIO_OB_LED_PIN
  * @details
  * PC13 is active-low: resetting its latch turns the LED on and setting its
  * latch turns the LED off. This mapping does not configure the pin by itself.
  * Accepted values:
  * - @ref `GPIO_PIN_13`: Blue Pill on-board LED pin
  */
-#define GPIO_OB_LED_PIN			((gpio_pin_t) GPIO_PIN_13)
+#define BSP_GPIO_OB_LED_PIN								GPIO_PIN_13
+
+/** @brief I2C1 default SCL GPIO port @def BSP_GPIO_I2C1_DEFAULT_SCL_PORT */
+#define BSP_GPIO_I2C1_DEFAULT_SCL_PORT					GPIOB
+/** @brief I2C1 default SCL GPIO pin @def BSP_GPIO_I2C1_DEFAULT_SCL_PIN */
+#define BSP_GPIO_I2C1_DEFAULT_SCL_PIN					GPIO_PIN_6
+
+/** @brief I2C1 default SDA GPIO port @def BSP_GPIO_I2C1_DEFAULT_SDA_PORT */
+#define BSP_GPIO_I2C1_DEFAULT_SDA_PORT					GPIOB
+/** @brief I2C1 default SDA GPIO pin @def BSP_GPIO_I2C1_DEFAULT_SDA_PIN */
+#define BSP_GPIO_I2C1_DEFAULT_SDA_PIN					GPIO_PIN_7
 
 // ==================================================================================================== //
 // On-Board LED APIs

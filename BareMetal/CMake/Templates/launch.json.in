@@ -7,19 +7,14 @@
       "request": "launch",
       "servertype": "openocd",
       "device": "STM32F103C8",
-      "executable": "@BUILD_OUTPUT_DIR@/@PROJECT_NAME@.elf",
+      "executable": "${workspaceFolder}/Build/Artifacts/@PROJECT_NAME@.elf",
       "configFiles": [
         "@CORE_ROOT@/Src/stlink.cfg",
         "@CORE_ROOT@/Src/stm32f1x.cfg"
       ],
       "svdFile": "@CORE_ROOT@/Src/stm32f103c8t6.svd",
       "runToEntryPoint": "main",
-      "preLaunchTask": "Build Project",
-      "postLaunchCommands": [
-        "monitor reset init",
-        "load",
-        "monitor reset halt"
-      ]
+      "preLaunchTask": "Build Project"
     }
   ]
 }

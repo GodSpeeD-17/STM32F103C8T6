@@ -373,7 +373,7 @@ defines header.
      policy when that layer exists.
 
 3. Move board behavior out of GPIO.
-   - Keep `GPIO_OB_LED_PORT`, `GPIO_OB_LED_PIN`, and `BSP_OB_LED_*` in the BSP
+   - Keep `BSP_GPIO_OB_LED_PORT`, `BSP_GPIO_OB_LED_PIN`, and `BSP_OB_LED_*` in the BSP
      module.
    - Keep generic GPIO unaware of active-low LEDs.
    - Keep `GPIO_LED_Init()` generic because it only applies a fixed GPIO mode

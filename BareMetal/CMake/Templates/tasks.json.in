@@ -5,7 +5,7 @@
       "label": "Build Project",
       "type": "process",
       "command": "@CMAKE_COMMAND@",
-      "args": ["--build", "@CMAKE_BINARY_DIR@"],
+      "args": ["--build", "${workspaceFolder}/Build"],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -16,7 +16,7 @@
       "label": "Clean Project",
       "type": "process",
       "command": "@CMAKE_COMMAND@",
-      "args": ["--build", "@CMAKE_BINARY_DIR@", "--target", "clean_all"],
+      "args": ["--build", "${workspaceFolder}/Build", "--target", "clean_all"],
       "group": "build",
       "problemMatcher": [],
       "detail": "Remove firmware artifacts and generated VS Code metadata"

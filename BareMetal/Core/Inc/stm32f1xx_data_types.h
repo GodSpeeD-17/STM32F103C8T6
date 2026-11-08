@@ -161,6 +161,14 @@ typedef uint32_t								frequency_t;
  */
 typedef enum _driver_status_t
 {
+	/** @brief Transport fault on one line, bit, or flag condition. @enum DRIVER_STATUS_ERROR_LINE_FAULT */
+	DRIVER_STATUS_ERROR_LINE_FAULT			=	-10,
+	/** @brief Data arrived faster than it was consumed and was discarded. @enum DRIVER_STATUS_ERROR_OVERRUN */
+	DRIVER_STATUS_ERROR_OVERRUN				=	-9,
+	/** @brief Bus contention resolved in favor of another master. @enum DRIVER_STATUS_ERROR_ARBITRATION_LOST */
+	DRIVER_STATUS_ERROR_ARBITRATION_LOST	=	-8,
+	/** @brief A remote device failed to acknowledge the addressed request. @enum DRIVER_STATUS_ERROR_NO_ACK */
+	DRIVER_STATUS_ERROR_NO_ACK				=	-7,
 	/** @brief Peripheral or driver is currently executing an operation. @enum DRIVER_STATUS_ERROR_BUSY */
 	DRIVER_STATUS_ERROR_BUSY				=	-6,
 	/** @brief Operation requested in an invalid driver or peripheral state. @enum DRIVER_STATUS_ERROR_STATE */
@@ -174,15 +182,19 @@ typedef enum _driver_status_t
 	/** @brief Operation failed due to a null pointer. @enum DRIVER_STATUS_ERROR_NULL_PTR */
 	DRIVER_STATUS_ERROR_NULL_PTR			=	-1,
 	/** @brief Generic error (baseline error code). @enum DRIVER_STATUS_ERROR */
-	DRIVER_STATUS_ERROR						=	 0,
+	DRIVER_STATUS_ERROR						=	0,
 	/** @brief Operation completed successfully. @enum DRIVER_STATUS_SUCCESS */
-	DRIVER_STATUS_SUCCESS					=	 1,
+	DRIVER_STATUS_SUCCESS					=	1,
 	/** @brief Target state: Disabled or turned OFF. @enum DRIVER_STATUS_OFF */
-	DRIVER_STATUS_OFF						=	 2,
+	DRIVER_STATUS_OFF						=	2,
 	/** @brief Target state: Enabled or turned ON. @enum DRIVER_STATUS_ON */
-	DRIVER_STATUS_ON						=	 3,
+	DRIVER_STATUS_ON						=	3,
 	/** @brief Peripheral or driver is configured and ready for an operation. @enum DRIVER_STATUS_READY */
-	DRIVER_STATUS_READY						=	 4
+	DRIVER_STATUS_READY						=	4,
+	/** @brief Required prerequisite resource is not yet established. @enum DRIVER_STATUS_ERROR_NOT_READY */
+	DRIVER_STATUS_ERROR_NOT_READY			=	5,
+	/** @brief A requested action is accepted but not yet complete. @enum DRIVER_STATUS_IN_PROGRESS */
+	DRIVER_STATUS_IN_PROGRESS				=	6
 } driver_status_t;
 
 /**
@@ -192,11 +204,11 @@ typedef enum _driver_status_t
  * Evaluates @p expr exactly once. Execution continues when it produces
  * @ref `DRIVER_STATUS_SUCCESS`; every other status is returned unchanged from
  * the enclosing function.
- * @param[in] expr Expression that produces @ref driver_status_t
+ * @param[in] expr Expression that produces @ref `driver_status_t`
  * Expected values:
- * - Any value representable by @ref driver_status_t
+ * - Any value representable by @ref `driver_status_t`
  * @warning Use this macro only inside a function whose return type admits every
- * value in @ref driver_status_t
+ * value in @ref `driver_status_t`
  */
 #define ASSERT_DRIVER_STATUS(expr)				\
 do												\

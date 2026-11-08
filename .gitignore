@@ -6,4 +6,4 @@
 Documentation/
 .doxygen/
 Build/
-build/compile_commands.json
+build/

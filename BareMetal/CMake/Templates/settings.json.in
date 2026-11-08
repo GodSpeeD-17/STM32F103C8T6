@@ -1,5 +1,5 @@
 {
-  "C_Cpp.default.compileCommands": "@CMAKE_BINARY_DIR@/compile_commands.json",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/Build/compile_commands.json",
   "cortex-debug.gdbPath": "@GDB_PATH_MULTIARCH_PATH@",
   "cortex-debug.openocdPath": "@OPENOCD_PATH@",
   "cortex-debug.stutilPath": "@ST_UTIL_PATH@",

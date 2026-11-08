@@ -88,7 +88,7 @@ macro(stm32f103_configure_project)
     set(DRIVER_MODULE_TREE "${_driver_module_tree}")
 
     set(_optimization_level "1")
-    if(STM32_OPTIMIZATION_LEVEL)
+    if(DEFINED STM32_OPTIMIZATION_LEVEL AND NOT "${STM32_OPTIMIZATION_LEVEL}" STREQUAL "")
         set(_optimization_level "${STM32_OPTIMIZATION_LEVEL}")
     endif()
     set(OPTIMIZATION_LEVEL "${_optimization_level}")

@@ -455,8 +455,8 @@ driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_
 
 	//! `BUS_IDLE` names an `SR2` condition, so testing it against an `SR1` image is
 	//! a vocabulary misuse whose 0x0002 value would false-match a latched `ADDR`.
-	//! Refusing it here keeps every caller free to wait through one generic helper
-	//! without that helper risking a wrong register test.
+	//! The dedicated bus-idle waiter owns that condition; refusing it here keeps
+	//! the generic `SR1` test register-honest even when called directly.
 	if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
 	{
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
@@ -490,6 +490,19 @@ driver_status_t Codec_I2C_IsMasterMode(const reg sr2RegImage)
 	//! MSL is set only while this peripheral is the active master, so it is the
 	//! authority for deciding whether an abort STOP request is still meaningful.
 	if ((sr2RegImage & I2C_SR2_MSL) != 0U)
+	{
+		return DRIVER_STATUS_SUCCESS;
+	}
+
+	return DRIVER_STATUS_ERROR;
+}
+
+driver_status_t Codec_I2C_IsAddressPending(const reg sr1RegImage)
+{
+	//! ADDR's clear condition spans two reads (SR1 followed by SR2), so the gated
+	//! sample decides whether the release read may fire without destroying an
+	//! event the sampled image never observed.
+	if ((sr1RegImage & I2C_SR1_ADDR) != 0U)
 	{
 		return DRIVER_STATUS_SUCCESS;
 	}

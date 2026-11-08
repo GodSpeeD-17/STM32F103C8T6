@@ -32,6 +32,31 @@ extern "C" {
 #endif /* __cplusplus */
 
 // ==================================================================================================== //
+//										LL Accessor Preservation										//
+// ==================================================================================================== //
+/**
+ * @brief Forces an LL register accessor to persist as inlined, non-removable code
+ * @def __STATIC_FORCEINLINE_LL
+ * @details
+ * Combines the `always_inline` and `used` GCC attributes with internal static
+ * linkage so LL accessors both merge into every caller and are never discarded,
+ * even when a call site's result is unused or when LTO prunes unreferenced
+ * statics. The caller's optimization level governs the merged body; no separate
+ * "-O0 island" exists for a single inlined function, which is why the `volatile`
+ * qualification of the register memory remains the load-bearing guarantee: two
+ * volatile accesses can never be removed, merged, or reordered relative to each
+ * other, so ordered pair-clear sequences (`SR1` then `SR2`) and other
+ * side-effecting reads survive at every optimization level. Use this instead of
+ * plain @ref `__STATIC_FORCEINLINE` wherever each accessor must be auditable as
+ *exactly one access plus a debuggable stepping site regardless of optimization.
+ * @warning No attribute can preserve the call boundary *and* the caller's
+ * optimization decisions simultaneously: if a discrete non-inlined call ever
+ * becomes the requirement, switch the attribute set to
+ * `__attribute__((noinline, used))` instead of weakening the access semantics.
+ */
+#define __STATIC_FORCEINLINE_LL	static __attribute__((always_inline, used)) inline
+
+// ==================================================================================================== //
 //											Bit Manipulation Utilities									//
 // ==================================================================================================== //
 /**

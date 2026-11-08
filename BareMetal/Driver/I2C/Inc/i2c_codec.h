@@ -353,6 +353,25 @@ driver_status_t Codec_I2C_IsBusBusy(const reg sr2RegImage);
  */
 driver_status_t Codec_I2C_IsMasterMode(const reg sr2RegImage);
 
+/**
+ * @brief Reports whether the address-sent event is latched (ADDR set)
+ * @details
+ * Tests `I2Cx_SR1.ADDR` without exposing the raw register bit to callers.
+ * Returns @ref `DRIVER_STATUS_SUCCESS` when the address-sent event is latched.
+ * The Driver uses this to gate the `SR2` release read in the address wait, so
+ * the ordered `SR1`-then-`SR2` pair-clear consumes only an event the sampled
+ * image actually observed — an `ADDR` arriving between the two reads stays
+ * latched for the next iteration instead of being cleared unobserved.
+ * @param[in] sr1RegImage I2C `SR1` register image
+ * Expected values:
+ * - Any valid `I2Cx_SR1` image captured by the Driver
+ * @returns @ref driver_status_t "Address-pending status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: ADDR is latched (address event pending)
+ * @retval - @ref `DRIVER_STATUS_ERROR`: ADDR is clear (no address event pending)
+ * @note This Codec performs no MMIO and does not validate the instance
+ */
+driver_status_t Codec_I2C_IsAddressPending(const reg sr1RegImage);
+
 /** @} */ // I2C_04_Codec
 
 // C++ Compatibility

@@ -52,9 +52,9 @@ static inline driver_status_t BSP_GPIO_EnableOBLEDClock(void)
 static inline driver_status_t BSP_GPIO_ConfigureOBLED(void)
 {
 	//! Configure the board route before publishing its inactive latch state so consumers never observe an uninitialized output mode.
-	ASSERT_DRIVER_STATUS(GPIO_LED_Init(GPIO_OB_LED_PORT, GPIO_OB_LED_PIN));
+	ASSERT_DRIVER_STATUS(GPIO_LED_Init(BSP_GPIO_OB_LED_PORT, BSP_GPIO_OB_LED_PIN));
 	//! PC13 is active-low, so setting its latch completes initialization with the LED visibly off.
-	return GPIO_PinSet(GPIO_OB_LED_PORT, GPIO_OB_LED_PIN);
+	return GPIO_PinSet(BSP_GPIO_OB_LED_PORT, BSP_GPIO_OB_LED_PIN);
 }
 
 // ==================================================================================================== //
@@ -71,19 +71,19 @@ driver_status_t BSP_InitOBLED(void)
 void BSP_OB_LED_Set(void)
 {
 	//! The Blue Pill LED is active-low, so reset PC13's latch to make the LED electrically active.
-	(void) GPIO_PinReset(GPIO_OB_LED_PORT, GPIO_OB_LED_PIN);
+	(void) GPIO_PinReset(BSP_GPIO_OB_LED_PORT, BSP_GPIO_OB_LED_PIN);
 }
 
 void BSP_OB_LED_Reset(void)
 {
 	//! The Blue Pill LED is active-low, so set PC13's latch to return the LED to its inactive state.
-	(void) GPIO_PinSet(GPIO_OB_LED_PORT, GPIO_OB_LED_PIN);
+	(void) GPIO_PinSet(BSP_GPIO_OB_LED_PORT, BSP_GPIO_OB_LED_PIN);
 }
 
 void BSP_OB_LED_Toggle(void)
 {
 	//! Delegating the latch transition to GPIO preserves the pin-level atomicity expected by board LED consumers.
-	(void) GPIO_PinToggle(GPIO_OB_LED_PORT, GPIO_OB_LED_PIN);
+	(void) GPIO_PinToggle(BSP_GPIO_OB_LED_PORT, BSP_GPIO_OB_LED_PIN);
 }
 
 #endif /* STM32F103C8T6__ */

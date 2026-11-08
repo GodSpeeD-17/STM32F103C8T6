@@ -2,7 +2,7 @@
   "configurations": [
     {
       "name": "STM32F103",
-      "compileCommands": "@CMAKE_BINARY_DIR@/compile_commands.json",
+      "compileCommands": "${workspaceFolder}/Build/compile_commands.json",
       "compilerPath": "@CMAKE_C_COMPILER@",
       "cStandard": "@C_STD@",
       "cppStandard": "@CXX_STD@",

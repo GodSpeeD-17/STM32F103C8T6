@@ -333,6 +333,11 @@ __STATIC_FORCEINLINE driver_status_t GPIO_PinMaskRemovePin(gpio_pin_t* const pPi
 /** @brief Output mode, max speed 50 MHz @def GPIO_PIN_MODE_OUTPUT_50MHZ */
 #define GPIO_PIN_MODE_OUTPUT_50MHZ						((gpio_pin_mode_t) 0x03U)
 
+/** @brief I2C SCL pin mode @def GPIO_PIN_MODE_I2Cx_SCL */
+#define GPIO_PIN_MODE_I2Cx_SCL							GPIO_PIN_MODE_OUTPUT_50MHZ
+/** @brief I2C SDA pin mode @def GPIO_PIN_MODE_I2Cx_SDA */
+#define GPIO_PIN_MODE_I2Cx_SDA							GPIO_PIN_MODE_OUTPUT_50MHZ
+
 /**
  * @brief Checks if a GPIO pin mode is valid
  * @param[in]	mode	GPIO pin mode selector to check
@@ -368,6 +373,11 @@ __STATIC_FORCEINLINE driver_status_t GPIO_PinMaskRemovePin(gpio_pin_t* const pPi
 #define GPIO_PIN_CONFIG_ALTERNATE_PUSH_PULL				((gpio_pin_config_t) 0x05U)
 /** @brief Alternate function output open-drain @def GPIO_PIN_CONFIG_ALTERNATE_OPEN_DRAIN */
 #define GPIO_PIN_CONFIG_ALTERNATE_OPEN_DRAIN			((gpio_pin_config_t) 0x06U)
+
+/** @brief I2C SCL pin configuration @def GPIO_PIN_CONFIG_I2Cx_SCL */
+#define GPIO_PIN_CONFIG_I2Cx_SCL						GPIO_PIN_CONFIG_ALTERNATE_OPEN_DRAIN
+/** @brief I2C SDA pin configuration @def GPIO_PIN_CONFIG_I2Cx_SDA */
+#define GPIO_PIN_CONFIG_I2Cx_SDA						GPIO_PIN_CONFIG_ALTERNATE_OPEN_DRAIN
 
 /**
  * @brief Validates a GPIO pin configuration value

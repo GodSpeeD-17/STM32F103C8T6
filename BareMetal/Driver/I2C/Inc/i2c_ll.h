@@ -95,7 +95,7 @@ extern "C" {
  * @returns Full 32-bit register image currently observed at @p pRegister.
  * @note Caller must pass a valid I2C register pointer.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadRegister(const _IO* const pRegister)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadRegister(const _IO* const pRegister)
 {
 	// Local Variable
 	reg registerImage = 0x00000000UL;
@@ -125,7 +125,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteRegister(_IO* const pRegister, const reg r
  * @note `CR1` controls peripheral enable, ACK, clock stretching, and other
  * protocol settings. Field extraction and interpretation are codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadCR1(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadCR1(I2C_TypeDef* const I2Cx)
 {
 	//! Address the CR1 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, CR1));
@@ -150,7 +150,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteCR1(I2C_TypeDef* const I2Cx, const reg reg
  * @note `CR2` controls DMA, interrupts, and slave address. Field extraction
  * and interpretation are codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadCR2(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadCR2(I2C_TypeDef* const I2Cx)
 {
 	//! Address the CR2 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, CR2));
@@ -175,7 +175,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteCR2(I2C_TypeDef* const I2Cx, const reg reg
  * @note `OAR1` stores the primary own address. Field extraction and
  * interpretation are codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadOAR1(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadOAR1(I2C_TypeDef* const I2Cx)
 {
 	//! Address the OAR1 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, OAR1));
@@ -200,7 +200,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteOAR1(I2C_TypeDef* const I2Cx, const reg re
  * @note `OAR2` stores the secondary own address. Field extraction and
  * interpretation are codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadOAR2(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadOAR2(I2C_TypeDef* const I2Cx)
 {
 	//! Address the OAR2 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, OAR2));
@@ -225,7 +225,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteOAR2(I2C_TypeDef* const I2Cx, const reg re
  * @note `DR` is the data register used for transmit and receive. Data
  * interpretation belongs above LL.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadDR(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadDR(I2C_TypeDef* const I2Cx)
 {
 	//! Address the DR union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, DR));
@@ -250,7 +250,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteDR(I2C_TypeDef* const I2Cx, const reg regi
  * @note `SR1` contains status flags. Flag extraction and interpretation are
  * codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadSR1(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadSR1(I2C_TypeDef* const I2Cx)
 {
 	//! Address the SR1 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, SR1));
@@ -275,7 +275,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteSR1(I2C_TypeDef* const I2Cx, const reg reg
  * @note `SR2` contains additional status flags. Flag extraction and interpretation
  * are codec responsibilities. SR2 is hardware-populated and read-only; no write accessor exists.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadSR2(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadSR2(I2C_TypeDef* const I2Cx)
 {
 	//! Address the SR2 union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, SR2));
@@ -288,7 +288,7 @@ __STATIC_FORCEINLINE reg LL_I2C_ReadSR2(I2C_TypeDef* const I2Cx)
  * @note `CCR` controls clock frequency. Field extraction and interpretation are
  * codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadCCR(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadCCR(I2C_TypeDef* const I2Cx)
 {
 	//! Address the CCR union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, CCR));
@@ -313,7 +313,7 @@ __STATIC_FORCEINLINE void LL_I2C_WriteCCR(I2C_TypeDef* const I2Cx, const reg reg
  * @note `TRISE` controls rise time. Field extraction and interpretation are
  * codec responsibilities.
  */
-__STATIC_FORCEINLINE reg LL_I2C_ReadTRISE(I2C_TypeDef* const I2Cx)
+__STATIC_FORCEINLINE_LL reg LL_I2C_ReadTRISE(I2C_TypeDef* const I2Cx)
 {
 	//! Address the TRISE union image through the shared register-pointer accessor.
 	return LL_I2C_ReadRegister(LL_I2C_REG(I2Cx, TRISE));
