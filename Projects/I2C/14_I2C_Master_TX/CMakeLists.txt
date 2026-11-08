@@ -152,7 +152,7 @@ stm32f103_configure_project(
         ${app_driver_modules}
     # Build with -O0 while hardware-debugging this application so every C
     # variable and register-read sequence stays inspectable in the debugger.
-    OPTIMIZATION_LEVEL 0
+    OPTIMIZATION_LEVEL 2
     # Link the application at the STM32F103C8T6 internal-Flash base address.
     FLASH_ADDRESS 0x08000000
 )

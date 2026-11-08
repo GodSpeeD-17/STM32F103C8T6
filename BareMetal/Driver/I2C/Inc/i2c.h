@@ -211,58 +211,6 @@ driver_status_t I2C_MasterTransmit
 	const uint32_t				timeout_ms
 );
 
-/**
- * @brief Receives one complete bounded message from a 7-bit I2C target
- * @details
- * Generates START, addresses the target for read, receives the requested byte
- * count using the hardware-required one-, two-, or many-byte receive tail,
- * then generates STOP. The result records exact received progress and the
- * primary typed failure after START is requested.
- *
- * @param[in] I2Cx I2C peripheral instance
- * Accepted values:
- * - `I2C1`
- * - `I2C2`
- * @param[in] slaveAddress Unshifted 7-bit I2C target address
- * Accepted values:
- * - `0x08U` through `0x77U`: Non-reserved 7-bit target address
- * @param[in] startRegAddress Register address to start reading from
- * @param[out] pData Destination data buffer
- * Expected values:
- * - Non-`NULL`: Destination for @p `size` bytes
- * @param[in] size Number of bytes to receive
- * Accepted values:
- * - Nonzero: Complete message length in bytes
- * @param[in] timeout_ms Transaction-wide timeout in milliseconds
- * Accepted values:
- * - Nonzero: Total polling budget for the complete transaction
- * @returns @ref driver_status_t "I2C controller receive operation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were received and STOP was generated
- * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
- * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `address`, @p `size`, or @p `timeout_ms` was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The APB1 clock gate is disabled
- * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: I2C is not configured and enabled
- * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
- * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
- * @retval - @ref `DRIVER_STATUS_ERROR_NO_ACK`: The target did not acknowledge the address or a transferred byte
- * @retval - @ref `DRIVER_STATUS_ERROR_ARBITRATION_LOST`: Arbitration was lost to another master after START
- * @retval - @ref `DRIVER_STATUS_ERROR_OVERRUN`: An `OVR` condition was flagged after START
- * @retval - @ref `DRIVER_STATUS_ERROR_LINE_FAULT`: A line-level error (BERR, PECERR, SMBALERT, or SMBus TIMEOUT) was flagged after START
- * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer left master mode without an `SR1` error flag
- * @pre The application enabled the matching APB1 clock gate through the RCC driver
- * @pre I2C is configured, enabled, idle, and exclusively owned by the caller
- * @note Received bytes up to the failure point may be valid; later destination bytes remain unchanged
- */
-driver_status_t I2C_MasterReceive
-(
-	I2C_TypeDef* const			I2Cx,
-	const i2c_address_t			slaveAddress,
-	const i2c_reg_addr_t		startRegAddress,
-	i2c_data_t* const			pData,
-	const i2c_data_length_t		size,
-	const uint32_t				timeout_ms
-);
-
 /** @} */ // I2C_03_Driver
 
 // C++ Compatibility

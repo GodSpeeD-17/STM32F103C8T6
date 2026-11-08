@@ -2,12 +2,14 @@
  * @file i2c_data_types.h
  * @author Shrey Shah
  * @brief I2C Driver Data Types
- * @version v1.0
+ * @version v1.1
  * @date 2026-08-28
  * @details
  * This file contains the scalar aliases, 7-bit address type, transfer size
- * type, error/event masks, and transfer result type for the I2C Driver.
- * These types are used across the Driver, Codec, and public API layers.
+ * type, the error/event selector typedefs, and the speed-mode/duty-cycle
+ * typedefs of the I2C Driver. It is the common ground for typedef aliases
+ * only: the admitted value macros of these types are defined in
+ * @ref `i2c_defines.h` beside their validation macros.
  */
 
 // Header Guards
@@ -33,6 +35,27 @@ extern "C" {
  * transfer result structures used throughout the I2C driver stack.
  * @{
  */
+
+/**
+ * @brief I2C bus speed preset type
+ * @typedef i2c_mode_t
+ * @details
+ * Selects the target SCL frequency preset for @ref `i2c_config_t`. The
+ * admitted preset value macros are defined in @ref `i2c_defines.h` beside
+ * their validation macro.
+ */
+typedef uint8_t								i2c_mode_t;
+
+/**
+ * @brief I2C Fast-mode duty cycle type
+ * @typedef i2c_fast_duty_t
+ * @details
+ * Selects the SCL low/high period ratio in Fast mode (400 kHz) operation;
+ * the Tlow/Thigh relationship affects rise-time margin and pull-up
+ * requirements per RM0008 Section 26.4.7. The admitted duty-cycle value
+ * macros are defined in @ref `i2c_defines.h` beside their validation macro.
+ */
+typedef uint8_t								i2c_fast_duty_t;
 
 /**
  * @brief Unshifted 7-bit I2C target address type
@@ -64,7 +87,7 @@ typedef uint8_t								i2c_reg_addr_t;
 
 /**
  * @brief I2C transfer byte count type
- * @typedef i2c_transfer_size_t
+ * @typedef i2c_data_length_t
  * @details
  * Number of bytes to transmit or receive. Zero-byte transfers are
  * rejected by the Driver. Maximum size is bounded by application
@@ -78,122 +101,32 @@ typedef uint16_t							i2c_data_length_t;
  * @typedef i2c_error_t
  * @details
  * Primary error cause reported in a transfer result. The Driver selects
- * a single primary error from the SR1 hardware flags and software
- * timeout/stuck-BUSY conditions.
+ * a single primary error from the `SR1` hardware flags and software
+ * timeout/stuck-`BUSY` conditions. The admitted error value macros are
+ * defined in @ref `i2c_defines.h`.
  */
 typedef uint8_t								i2c_error_t;
 
-/** @brief No error @def I2C_ERROR_NONE */
-#define I2C_ERROR_NONE								((i2c_error_t) 0U)
-/** @brief Address NACK (AF before ADDR) @def I2C_ERROR_ADDRESS_NACK */
-#define I2C_ERROR_ADDRESS_NACK						((i2c_error_t) 1U)
-/** @brief Data NACK (AF after data) @def I2C_ERROR_DATA_NACK */
-#define I2C_ERROR_DATA_NACK							((i2c_error_t) 2U)
-/** @brief Arbitration lost @def I2C_ERROR_ARBITRATION_LOST */
-#define I2C_ERROR_ARBITRATION_LOST					((i2c_error_t) 3U)
-/** @brief Bus error @def I2C_ERROR_BUS_ERROR */
-#define I2C_ERROR_BUS_ERROR							((i2c_error_t) 4U)
-/** @brief Overrun/underrun @def I2C_ERROR_OVERRUN */
-#define I2C_ERROR_OVERRUN							((i2c_error_t) 5U)
-/** @brief Hardware timeout (SMBus) @def I2C_ERROR_HARDWARE_TIMEOUT */
-#define I2C_ERROR_HARDWARE_TIMEOUT					((i2c_error_t) 6U)
-/** @brief Software timeout (poll budget exhausted) @def I2C_ERROR_SOFTWARE_TIMEOUT */
-#define I2C_ERROR_SOFTWARE_TIMEOUT					((i2c_error_t) 7U)
-/** @brief Stuck BUSY before START @def I2C_ERROR_STUCK_BUSY */
-#define I2C_ERROR_STUCK_BUSY						((i2c_error_t) 8U)
-/** @brief Recovery failed @def I2C_ERROR_RECOVERY_FAILED */
-#define I2C_ERROR_RECOVERY_FAILED					((i2c_error_t) 9U)
-
 /**
- * @brief `I2Cx_SR1` event-flag mask waited for by one transaction step
+ * @brief Application-domain status event mask awaited by one transaction step
  * @typedef i2c_event_flag_t
  * @details
- * Names the status flags a bounded transfer step waits for without exposing
- * raw register bits to the Driver. A single-bit mask names one hardware event;
- * a composite mask names an event that is only complete once every selected
- * flag is set, which is how the transmit tail expresses RM0008's EV8_2
- * (`TXE` together with `BTF`). @ref `I2C_EVENT_FLAG_BUS_IDLE` is the single
- * exception that names an `SR2` condition instead, because bus ownership has
- * no `SR1` flag. The Codec converts each selector into its flag test, so the
- * Driver never performs register-field work.
+ * Names the status events a bounded transfer step waits for in the Driver's
+ * application vocabulary, which deliberately does not mirror any register
+ * layout. Bit negotiation between application events and physical registers
+ * lives in the Codec: @ref `Codec_I2C_IsEventPending` translates an admitted
+ * selector into its raw `SR1` flag mask, and the `SR2` bus condition is
+ * answered through @ref `Codec_I2C_IsBusBusy`, so the Driver never performs
+ * register-field work and no two application selectors can ever collide just
+ * because `SR1` and `SR2` use overlapping bit positions. A single-bit mask
+ * names one hardware event; a composite mask is formed from individual
+ * selectors, so an event is complete only once every selected flag is set —
+ * which is how the transmit tail expresses RM0008's `EV8_2` (`TXE` together
+ * with `BTF`). Every individual selector owns a unique application-domain
+ * bit, so selector-equality tests in the Driver choreography are sound. The
+ * admitted selector value macros are defined in @ref `i2c_defines.h`.
  */
 typedef uint16_t								i2c_event_flag_t;
-
-/**
- * @brief START or repeated START was generated on the bus (`I2Cx_SR1.SB`)
- * @details
- * Set by hardware once the peripheral has driven a START or repeated START
- * onto the bus. A master clears it by reading `SR1` and then writing the
- * target address byte to `DR`, so the flag both announces the event and
- * releases the address phase; clearing `PE` clears it as well.
- * @def I2C_EVENT_FLAG_START_GENERATED
- */
-#define I2C_EVENT_FLAG_START_GENERATED				((i2c_event_flag_t) 0x0001U)
-
-/**
- * @brief Target address was sent and acknowledged (`I2Cx_SR1.ADDR`)
- * @details
- * Set by hardware after the address byte has shifted out and the target has
- * acknowledged it, which is the point where the peripheral may stretch `SCL`.
- * A master clears it with the ordered `SR1` then `SR2` read pair, so the flag
- * bounds the address phase instead of being cleared speculatively. The
- * Driver's wait helper answers this selector as one coherent
- * master-transmitter step: the pair inside the wait performs the mandatory
- * release and the same `SR2` sample proves master mode. The receive-path
- * `EV6_3` sequence that must interpose `CR1` action writes between the two
- * reads cannot reuse the selector.
- * @def I2C_EVENT_FLAG_ADDRESS_SENT
- */
-#define I2C_EVENT_FLAG_ADDRESS_SENT					((i2c_event_flag_t) 0x0002U)
-
-/**
- * @brief Data register and shift register are both settled (`I2Cx_SR1.BTF`)
- * @details
- * Set once a byte has moved between `DR` and the shift register and the next
- * transfer step would need software service. In transmit it becomes set only
- * after the final byte leaves `DR` and drains from the shift register, so it
- * is the safe point to request STOP without truncating the last byte.
- * @def I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED
- */
-#define I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED		((i2c_event_flag_t) 0x0004U)
-
-/**
- * @brief Transmit data register is empty (`I2Cx_SR1.TXE`)
- * @details
- * Set while `DR` can accept the next byte. It is cleared by the `DR` write
- * that fills it, by a START or STOP request, or by clearing `PE`, so it is the
- * pacing condition for every byte of a transmit payload.
- * @def I2C_EVENT_FLAG_DATA_REGISTER_EMPTY
- */
-#define I2C_EVENT_FLAG_DATA_REGISTER_EMPTY			((i2c_event_flag_t) 0x0080U)
-
-/**
- * @brief Transmit tail is complete: `TXE` and `BTF` are set together
- * @details
- * Composite selector matching RM0008's EV8_2. Requiring both flags at once
- * means the caller waits for the last byte to leave the shift register instead
- * of treating an empty `DR` alone as completion, which would let a STOP
- * request truncate the final byte.
- * @def I2C_EVENT_FLAG_TRANSFER_COMPLETE
- */
-#define I2C_EVENT_FLAG_TRANSFER_COMPLETE			((i2c_event_flag_t) (I2C_EVENT_FLAG_DATA_REGISTER_EMPTY | I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED))
-
-/**
- * @brief Peripherals released the bus (`I2Cx_SR2.BUSY` observed clear)
- * @details
- * The one selector that names an `SR2` condition instead of an `SR1` mask,
- * because bus ownership has no `SR1` flag at all. Its value is defined against
- * the `SR2` register layout (`BUSY`, bit 1), so it must never be bit-tested
- * against an `SR1` image; the Driver's wait helper branches on the selector
- * explicitly and answers it from `Codec_I2C_IsBusBusy`, keeping the raw bit
- * knowledge in the Codec. The helper reads `SR2` for this selector every
- * iteration — `ADDR` cannot be harmfully released before it is observed, and
- * the ordered pair is the mandatory `EV6` clear once it is — and it is one of
- * the two selectors, beside @ref `I2C_EVENT_FLAG_BUS_IDLE`, that earn an
- * `SR2` read at all.
- * @def I2C_EVENT_FLAG_BUS_IDLE
- */
-#define I2C_EVENT_FLAG_BUS_IDLE						((i2c_event_flag_t) 0x0002U)
 
 /** @} */ // I2C_02_DataTypes
 

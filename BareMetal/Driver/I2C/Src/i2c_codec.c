@@ -446,27 +446,61 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
 
 driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_flag_t eventFlag)
 {
-	//! An unknown selector must not be answered with "not pending", because that
-	//! would turn a caller's vocabulary mistake into a silent transfer timeout.
-	if (I2C_IS_VALID_EVENT_FLAG(eventFlag) == 0U)
-	{
-		return DRIVER_STATUS_ERROR_INVALID_ARG;
-	}
+	// Local Variables
+	reg eventMask = 0x00000000UL;
 
-	//! `BUS_IDLE` names an `SR2` condition, so testing it against an `SR1` image is
-	//! a vocabulary misuse whose 0x0002 value would false-match a latched `ADDR`.
-	//! The dedicated bus-idle waiter owns that condition; refusing it here keeps
-	//! the generic `SR1` test register-honest even when called directly.
+	//! `BUS_IDLE` names an `SR2` condition, so no `SR1` image can ever answer
+	//! it; the Selector Codec refuses it here and the Driver's bus-idle wait
+	//! helper answers it through `Codec_I2C_IsBusBusy` instead.
 	if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
 	{
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
-	//! Comparing the masked image against the selector itself means "all selected
-	//! flags set". For a single-flag selector that is the ordinary set test; for the
-	//! composite completion selector it proves TXE and BTF are both asserted, so a
-	//! freshly emptied DR alone never reports the tail as finished.
-	if ((sr1RegImage & (reg) eventFlag) == (reg) eventFlag)
+	//! Selector-to-register translation: the application vocabulary names the
+	//! event without mirroring any register layout, and the Codec owns which
+	//! raw `SR1` mask expresses it. An unknown selector must not be answered
+	//! with "not pending", because that would turn a caller's vocabulary
+	//! mistake into a silent transfer timeout.
+	switch (eventFlag)
+	{
+		case I2C_EVENT_FLAG_START_GENERATED:
+		{
+			eventMask = I2C_SR1_SB;
+			break;
+		}
+		case I2C_EVENT_FLAG_ADDRESS_SENT:
+		{
+			eventMask = I2C_SR1_ADDR;
+			break;
+		}
+		case I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED:
+		{
+			eventMask = I2C_SR1_BTF;
+			break;
+		}
+		case I2C_EVENT_FLAG_DATA_REGISTER_EMPTY:
+		{
+			eventMask = I2C_SR1_TXE;
+			break;
+		}
+		case I2C_EVENT_FLAG_TRANSFER_COMPLETE:
+		{
+			eventMask = (I2C_SR1_TXE | I2C_SR1_BTF);
+			break;
+		}
+		default:
+		{
+			return DRIVER_STATUS_ERROR_INVALID_ARG;
+		}
+	}
+
+	//! Comparing the masked image against the translated mask means "all
+	//! selected flags set". For a single-flag selector that is the ordinary
+	//! set test; for the composite completion selector it proves TXE and BTF
+	//! are both asserted, so a freshly emptied DR alone never reports the
+	//! tail as finished.
+	if ((sr1RegImage & eventMask) == eventMask)
 	{
 		return DRIVER_STATUS_SUCCESS;
 	}

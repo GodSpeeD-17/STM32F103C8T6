@@ -681,19 +681,46 @@ The hardware design balances:
 
 ## Master Transaction Model
 
-The three bounded wait helpers each own one loop shape instead of one helper
-branching over all of them. The generic `_I2C_WaitForEvent` helper is strictly
-`SR1`-only: it samples `SR1` once per iteration, decodes errors first, consumes
-one transaction poll, and tests the requested event, refusing the two
-`SR2`-choreography selectors at entry. The dedicated `_I2C_WaitForAddressSent`
-helper owns the ordered read-`SR1`-then-read-`SR2` pair that is the mandatory
-`EV6` release plus the master-mode proof, gating the release read on the same
-sampled image that observed `ADDR` so no speculative `SR2` access can erase an
-event its owning step has not reached. The dedicated `_I2C_WaitForBusIdle`
-helper owns the `SR2` bus condition, sampling `BUSY` every iteration because
-bus ownership has no `SR1` flag, with `SR1` read only for error decoding. No
-step can loop without budget. Error cleanup never calls an assertion-style
-early-return macro after the first transaction mutation.
+The one bounded unified wait engine `_I2C_WaitForEvent` owns the loop shape for
+every waited status event. Each paced iteration samples `SR1` once, decodes
+errors first, consumes one transaction poll, then routes the requested selector
+to the choreography its condition demands: the `ADDRESS_SENT` route performs
+the ordered read-`SR1`-then-read-`SR2` pair that is the mandatory `EV6` release
+plus the master-mode proof, gating the release read on the same sampled image
+that observed `ADDR` so no speculative `SR2` access can erase an event its
+owning step has not reached; the `BUS_IDLE` route samples `BUSY` from `SR2`
+every iteration because bus ownership has no `SR1` flag, with the `SR1` read
+consumed only for error decoding; every other selector is answered against the
+already-sampled `SR1` image. No step can loop without budget. Error cleanup
+never calls an assertion-style early-return macro after the first transaction
+mutation.
+
+The event vocabulary is application-domain, not register-mirroring: each
+individual selector in `i2c_defines.h` owns a unique bit, and the generic
+`SR1` route (`Codec_I2C_IsEventPending`) translates every pure-`SR1` selector
+to its raw mask while `BUS_IDLE` is answered only through
+`Codec_I2C_IsBusBusy` against an `SR2` image. This decoupling is a hard
+requirement on this silicon, because `SR1.ADDR` and `SR2.BUSY` sit on the same
+raw bit position (mask 0x0002): an earlier vocabulary revision that mirrored
+register layouts gave the two selectors the same application value, which
+collapsed an earlier unified one-engine wait loop (its bus-idle branch
+mis-consumed the address selector, released `ADDR` without the pair
+discipline, and drained the whole budget into a timeout). Once the vocabulary
+gives every selector its own value, selector equality is strictly exclusive
+across registers and the per-iteration choreography routes can never
+cross-wire.
+
+> **Unified single-engine note:** a one-loop unified `_I2C_WaitForEvent` was
+> implemented and hardware-tested twice under the original register-mirroring
+> vocabulary, where its bus-idle branch mis-consumed the aliased `0x0002`
+> address selector and reported `DRIVER_STATUS_ERROR_TIMEOUT` on the address
+> wait. The evaporation of that alias (not a choreography correction) is what
+> made unification safe: after the vocabulary was re-encoded so every selector
+> owns a unique application value and the probe passed on hardware, the split
+> helpers were folded back into the single per-iteration-routing engine, which
+> is the canonical shape. The decoupling rule above is what guarantees the
+> routed equalities can never alias again; it stays a hard requirement on any
+> future selector addition.
 
 ### Common START and address phase
 
@@ -704,11 +731,11 @@ early-return macro after the first transaction mutation.
    remains application-owned until then.
 4. Read SR1 as the first half of EV5, then write one encoded address byte to DR.
 5. Wait for `ADDR=1` or AF/error. AF before ADDR is address NACK.
-6. The `_I2C_WaitForAddressSent` step itself clears `ADDR` with the ordered
-   `SR1` then `SR2` reads and proves master mode from that `SR2` sample. The
-   receive-path `EV6_3` step that must interpose `CR1` writes between the two
-   reads gets its own transaction and never reuses the pairing. No other wait
-   samples `SR2` for an event release.
+6. The `ADDRESS_SENT` route of `_I2C_WaitForEvent` clears `ADDR` with the
+   ordered `SR1` then `SR2` reads and proves master mode from that `SR2`
+   sample. The receive-path `EV6_3` step that must interpose `CR1` writes
+   between the two reads gets its own transaction and never reuses the
+   pairing. No other wait route samples `SR2` for an event release.
 
 ### Master write
 

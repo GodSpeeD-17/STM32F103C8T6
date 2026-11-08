@@ -296,8 +296,10 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
 /**
  * @brief Validates that every selected event flag in an SR1 image is pending
  * @details
- * Tests each bit named by @p `eventFlag` without exposing raw register bits to
- * the Driver. A single-flag selector reports one hardware event; the composite
+ * Translates the application-domain selector into its raw `SR1` flag mask and
+ * compares the masked image against it, so the application vocabulary never
+ * has to mirror a register layout. A single-flag selector reports one
+ * hardware event; the composite
  * @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` selector reports the transmit tail
  * only when `TXE` and `BTF` are set together, which is RM0008's EV8_2. A
  * partially satisfied composite selector is reported as a plain negative so a
