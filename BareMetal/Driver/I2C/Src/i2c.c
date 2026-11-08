@@ -142,6 +142,13 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * @param[in,out] pPollBudget Remaining transaction poll budget
  * Expected values:
  * - Non-`NULL`: Decremented once per `SR1` sample
+ * @param[out] pError Optional caller-owned report of the most recently sampled `SR1` error flag
+ * Expected values:
+ * - Any error report owned by the caller:
+ *   - On success: @ref `I2C_ERROR_NONE`
+ *   - On a hardware failure @ref `DRIVER_STATUS_ERROR_FAIL`: The latched error selector
+ *   - On any other failure: Always @ref `I2C_ERROR_NONE`, because no error flag was sampled
+ *   - `NULL`: The report is skipped and nothing is published
  * @returns @ref driver_status_t "Event-wait status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: The selected event was observed
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
@@ -149,7 +156,8 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: An `SR1` error flag was observed first
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: @p `pPollBudget` was exhausted
  * @note The error flag behind an @ref `DRIVER_STATUS_ERROR_FAIL` result is left
- * latched, because the caller still has to preserve and acknowledge it
+ * latched and reported through @p `pError` when provided, because the caller
+ * still has to preserve and acknowledge it
  * @note The @ref `I2C_EVENT_FLAG_ADDRESS_SENT` selector expresses the
  * master-transmitter `EV6` only: the wait releases `ADDR` by the ordered pair
  * and proves master mode from that same `SR2` sample. The receive-path
@@ -162,7 +170,8 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 (
 	I2C_TypeDef* const			I2Cx,
 	const i2c_event_flag_t		eventFlag,
-	uint32_t* const				pPollBudget
+	uint32_t* const				pPollBudget,
+	i2c_error_t* const			pError
 )
 {
 	// Local Variables
@@ -170,11 +179,17 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 	reg sr2RegImage = 0x00000000UL;
 	i2c_error_t sampledError = I2C_ERROR_NONE;
 	driver_status_t sampleStatus = DRIVER_STATUS_ERROR;
+	driver_status_t waitStatus = DRIVER_STATUS_ERROR_TIMEOUT;
 
 	//! A missing caller budget would turn every wait into an unbounded loop, so it
-	//! is refused before the first status sample is taken.
+	//! is refused before the first status sample is taken. No error flag has been
+	//! sampled yet, so the definite NONE value is what this early refusal reports.
 	if (pPollBudget == NULL)
 	{
+		if (pError != NULL)
+		{
+			*pError = sampledError;
+		}
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
@@ -188,11 +203,18 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 
 		//! Errors are decoded first because a NACK or bus error also leaves the
 		//! awaited event clear; reporting the timeout instead would hide the cause.
-		sampleStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
-		ASSERT_DRIVER_STATUS(sampleStatus);
+		waitStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
+		if(waitStatus != DRIVER_STATUS_SUCCESS)
+		{
+			//! A Codec-contract decode violation sampled no error flag, and the
+			//! decode status is already the wait result; the definite NONE value
+			//! still reaches the caller's report at the single exit.
+			break;
+		}
 		if (sampledError != I2C_ERROR_NONE)
 		{
-			return DRIVER_STATUS_ERROR_FAIL;
+			waitStatus = DRIVER_STATUS_ERROR_FAIL;
+			break;
 		}
 
 		//! Deal with SR1 first, then read SR2 if the selector names an SR2
@@ -210,7 +232,8 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		{
 			if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
 			{
-				return DRIVER_STATUS_SUCCESS;
+				waitStatus = DRIVER_STATUS_SUCCESS;
+				break;
 			}
 			continue;
 		}
@@ -227,20 +250,32 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 			{
 				if (Codec_I2C_IsMasterMode(sr2RegImage) != DRIVER_STATUS_SUCCESS)
 				{
-					return DRIVER_STATUS_ERROR_FAIL;
+					waitStatus = DRIVER_STATUS_ERROR_FAIL;
+					break;
 				}
 			}
-			return DRIVER_STATUS_SUCCESS;
+			waitStatus = DRIVER_STATUS_SUCCESS;
+			break;
 		}
 		//! Only the plain "not pending yet" answer may keep polling: a rejected
 		//! selector is a programming error and must not burn the whole budget.
 		if (sampleStatus != DRIVER_STATUS_ERROR)
 		{
-			return sampleStatus;
+			waitStatus = sampleStatus;
+			break;
 		}
 	}
 
-	return DRIVER_STATUS_ERROR_TIMEOUT;
+	//! Single exit: publish the most recently sampled error flag on every return.
+	//! It is `I2C_ERROR_NONE` on every non-`ERROR_FAIL` exit by construction and the
+	//! latched selector on `ERROR_FAIL`, so @p `pError` never carries a stale value;
+	//! a `NULL` report is skipped by contract.
+	if (pError != NULL)
+	{
+		*pError = sampledError;
+	}
+
+	return waitStatus;
 }
 
 /**
@@ -281,7 +316,10 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx,
 	//! staged image matches the snapshot of an already-requested START.
 	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
 
-	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_START_GENERATED, pPollBudget);
+	//! The latched error behind any SB-wait failure is recovered by the caller's
+	//! cleanup path, which re-snapshots `SR1` itself, so the optional report is
+	//! deliberately not consumed here.
+	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_START_GENERATED, pPollBudget, NULL);
 }
 
 /**
@@ -325,7 +363,9 @@ __STATIC_FORCEINLINE driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, 
 	//! The request only releases the bus at the next byte boundary, so the bounded
 	//! wait is what proves completion; routing it through the shared helper keeps
 	//! every caller's "STOP succeeded" answer backed by the same idle evidence.
-	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_BUS_IDLE, pPollBudget);
+	//! The optional error report is not consumed here for the same reason as the
+	//! START wait: the cleanup path re-snapshots `SR1` and never needs plumbing.
+	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_BUS_IDLE, pPollBudget, NULL);
 }
 
 /**
@@ -756,7 +796,7 @@ driver_status_t I2C_MasterTransmit
 		//! EV6 completes inside the wait: the ordered `SR1`-then-`SR2` pair there
 		//! releases `ADDR` (ending `SCL` stretching) and its master bit proves the
 		//! address phase still owned the bus, so no separate status sample follows.
-		transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_ADDRESS_SENT, &pollBudget);
+		transactionStatus = _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_ADDRESS_SENT, &pollBudget, NULL);
 	}
 
 	//! EV8: with `ADDR` released the peripheral accepts one byte per `TXE`, so the
@@ -769,7 +809,8 @@ driver_status_t I2C_MasterTransmit
 			(
 				I2Cx,
 				I2C_EVENT_FLAG_DATA_REGISTER_EMPTY,
-				&pollBudget
+				&pollBudget,
+				NULL
 			);
 			if (transactionStatus != DRIVER_STATUS_SUCCESS)
 			{
@@ -787,7 +828,8 @@ driver_status_t I2C_MasterTransmit
 		(
 			I2Cx,
 			I2C_EVENT_FLAG_TRANSFER_COMPLETE,
-			&pollBudget
+			&pollBudget,
+			NULL
 		);
 	}
 
