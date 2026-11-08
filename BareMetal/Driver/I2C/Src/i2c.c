@@ -142,13 +142,13 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * @param[in,out] pPollBudget Remaining transaction poll budget
  * Expected values:
  * - Non-`NULL`: Decremented once per `SR1` sample
- * @param[out] pError Optional caller-owned report of the most recently sampled `SR1` error flag
+ * @param[out] pError Optional caller-owned report of the latched `SR1` error flag
  * Expected values:
  * - Any error report owned by the caller:
- *   - On success: @ref `I2C_ERROR_NONE`
  *   - On a hardware failure @ref `DRIVER_STATUS_ERROR_FAIL`: The latched error selector
- *   - On any other failure: Always @ref `I2C_ERROR_NONE`, because no error flag was sampled
- *   - `NULL`: The report is skipped and nothing is published
+ *   - On the error-decode failure exit: @ref `I2C_ERROR_NONE`
+ *   - `NULL`: The report is skipped
+ *   - Any other exit leaves the caller's value untouched
  * @returns @ref driver_status_t "Event-wait status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: The selected event was observed
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
@@ -179,17 +179,11 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 	reg sr2RegImage = 0x00000000UL;
 	i2c_error_t sampledError = I2C_ERROR_NONE;
 	driver_status_t sampleStatus = DRIVER_STATUS_ERROR;
-	driver_status_t waitStatus = DRIVER_STATUS_ERROR_TIMEOUT;
 
 	//! A missing caller budget would turn every wait into an unbounded loop, so it
-	//! is refused before the first status sample is taken. No error flag has been
-	//! sampled yet, so the definite NONE value is what this early refusal reports.
+	//! is refused before the first status sample is taken.
 	if (pPollBudget == NULL)
 	{
-		if (pError != NULL)
-		{
-			*pError = sampledError;
-		}
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
@@ -203,18 +197,26 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 
 		//! Errors are decoded first because a NACK or bus error also leaves the
 		//! awaited event clear; reporting the timeout instead would hide the cause.
-		waitStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
-		if(waitStatus != DRIVER_STATUS_SUCCESS)
+		sampleStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
+		if (sampleStatus != DRIVER_STATUS_SUCCESS)
 		{
-			//! A Codec-contract decode violation sampled no error flag, and the
-			//! decode status is already the wait result; the definite NONE value
-			//! still reaches the caller's report at the single exit.
-			break;
+			//! A Codec-contract decode violation sampled no error flag, so the
+			//! definite NONE value is what reaches the caller's report here.
+			if (pError != NULL)
+			{
+				*pError = sampledError;
+			}
+			return sampleStatus;
 		}
 		if (sampledError != I2C_ERROR_NONE)
 		{
-			waitStatus = DRIVER_STATUS_ERROR_FAIL;
-			break;
+			//! This is the one exit that names a cause: the latched selector is
+			//! reported before the flag is handed to cleanup for acknowledgement.
+			if (pError != NULL)
+			{
+				*pError = sampledError;
+			}
+			return DRIVER_STATUS_ERROR_FAIL;
 		}
 
 		//! Deal with SR1 first, then read SR2 if the selector names an SR2
@@ -232,8 +234,7 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		{
 			if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
 			{
-				waitStatus = DRIVER_STATUS_SUCCESS;
-				break;
+				return DRIVER_STATUS_SUCCESS;
 			}
 			continue;
 		}
@@ -250,32 +251,20 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 			{
 				if (Codec_I2C_IsMasterMode(sr2RegImage) != DRIVER_STATUS_SUCCESS)
 				{
-					waitStatus = DRIVER_STATUS_ERROR_FAIL;
-					break;
+					return DRIVER_STATUS_ERROR_FAIL;
 				}
 			}
-			waitStatus = DRIVER_STATUS_SUCCESS;
-			break;
+			return DRIVER_STATUS_SUCCESS;
 		}
 		//! Only the plain "not pending yet" answer may keep polling: a rejected
 		//! selector is a programming error and must not burn the whole budget.
 		if (sampleStatus != DRIVER_STATUS_ERROR)
 		{
-			waitStatus = sampleStatus;
-			break;
+			return sampleStatus;
 		}
 	}
 
-	//! Single exit: publish the most recently sampled error flag on every return.
-	//! It is `I2C_ERROR_NONE` on every non-`ERROR_FAIL` exit by construction and the
-	//! latched selector on `ERROR_FAIL`, so @p `pError` never carries a stale value;
-	//! a `NULL` report is skipped by contract.
-	if (pError != NULL)
-	{
-		*pError = sampledError;
-	}
-
-	return waitStatus;
+	return DRIVER_STATUS_ERROR_TIMEOUT;
 }
 
 /**
