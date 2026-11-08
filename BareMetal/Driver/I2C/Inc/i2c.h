@@ -156,9 +156,11 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
  * @brief Transmits one complete bounded message to a 7-bit I2C target
  * @details
  * Generates START, writes the encoded target address and all requested data,
- * waits for final byte transfer completion, then generates STOP. The timeout
- * is transaction-wide and the result records exact transmitted progress and
- * the primary typed hardware or software failure after START is requested.
+ * waits for final byte transfer completion, then generates STOP. @p `timeout_ms`
+ * is transaction-wide: START, the address phase, every payload byte, the final
+ * byte-complete tail, the STOP request, and the closing bus-idle wait all draw
+ * from one poll budget, so the call cannot exceed the single timeout it was
+ * given. The result reports only the primary failure that stopped the transfer.
  *
  * @param[in] I2Cx I2C peripheral instance
  * Accepted values:
@@ -179,13 +181,22 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
  * @returns @ref driver_status_t "I2C controller transmit operation status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were transmitted and STOP was generated
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
- * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `address`, @p `size`, or @p `timeout_ms` was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled or I2C is not configured and enabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The APB1 clock gate is disabled, I2C is not enabled, a START/STOP request is still pending, or a stale `SR1` error flag is latched
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
  * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer failed after START
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
  * @pre I2C is configured, enabled, idle, and exclusively owned by the caller
+ * @pre Every `SR1` error flag from an earlier aborted transaction was already acknowledged by the application
+ * @note A failure after START enters one best-effort cleanup path: the primary
+ * cause is preserved, an abort STOP is requested only while the peripheral still
+ * reports master mode and no action is pending, and only the observed `SR1` error
+ * flags are cleared. A peripheral that stays busy is left to application-level
+ * bus recovery, and `CR1.SWRST` recovery is not performed by this API
+ * @note A target that does not acknowledge the address or a data byte is
+ * reported as @ref `DRIVER_STATUS_ERROR_FAIL`, indistinguishable from other
+ * protocol failures in the shared status vocabulary
  *  */
 driver_status_t I2C_MasterTransmit
 (

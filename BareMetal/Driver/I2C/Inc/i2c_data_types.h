@@ -84,25 +84,92 @@ typedef uint16_t							i2c_data_length_t;
 typedef uint8_t								i2c_error_t;
 
 /** @brief No error @def I2C_ERROR_NONE */
-#define I2C_ERROR_NONE						((i2c_error_t) 0U)
+#define I2C_ERROR_NONE								((i2c_error_t) 0U)
 /** @brief Address NACK (AF before ADDR) @def I2C_ERROR_ADDRESS_NACK */
-#define I2C_ERROR_ADDRESS_NACK				((i2c_error_t) 1U)
+#define I2C_ERROR_ADDRESS_NACK						((i2c_error_t) 1U)
 /** @brief Data NACK (AF after data) @def I2C_ERROR_DATA_NACK */
-#define I2C_ERROR_DATA_NACK					((i2c_error_t) 2U)
+#define I2C_ERROR_DATA_NACK							((i2c_error_t) 2U)
 /** @brief Arbitration lost @def I2C_ERROR_ARBITRATION_LOST */
-#define I2C_ERROR_ARBITRATION_LOST			((i2c_error_t) 3U)
+#define I2C_ERROR_ARBITRATION_LOST					((i2c_error_t) 3U)
 /** @brief Bus error @def I2C_ERROR_BUS_ERROR */
-#define I2C_ERROR_BUS_ERROR					((i2c_error_t) 4U)
+#define I2C_ERROR_BUS_ERROR							((i2c_error_t) 4U)
 /** @brief Overrun/underrun @def I2C_ERROR_OVERRUN */
-#define I2C_ERROR_OVERRUN					((i2c_error_t) 5U)
+#define I2C_ERROR_OVERRUN							((i2c_error_t) 5U)
 /** @brief Hardware timeout (SMBus) @def I2C_ERROR_HARDWARE_TIMEOUT */
-#define I2C_ERROR_HARDWARE_TIMEOUT			((i2c_error_t) 6U)
+#define I2C_ERROR_HARDWARE_TIMEOUT					((i2c_error_t) 6U)
 /** @brief Software timeout (poll budget exhausted) @def I2C_ERROR_SOFTWARE_TIMEOUT */
-#define I2C_ERROR_SOFTWARE_TIMEOUT			((i2c_error_t) 7U)
+#define I2C_ERROR_SOFTWARE_TIMEOUT					((i2c_error_t) 7U)
 /** @brief Stuck BUSY before START @def I2C_ERROR_STUCK_BUSY */
-#define I2C_ERROR_STUCK_BUSY				((i2c_error_t) 8U)
+#define I2C_ERROR_STUCK_BUSY						((i2c_error_t) 8U)
 /** @brief Recovery failed @def I2C_ERROR_RECOVERY_FAILED */
-#define I2C_ERROR_RECOVERY_FAILED			((i2c_error_t) 9U)
+#define I2C_ERROR_RECOVERY_FAILED					((i2c_error_t) 9U)
+
+/**
+ * @brief `I2Cx_SR1` event-flag mask waited for by one transaction step
+ * @typedef i2c_event_flag_t
+ * @details
+ * Names the status flags a bounded transfer step waits for without exposing
+ * raw register bits to the Driver. A single-bit mask names one hardware event;
+ * a composite mask names an event that is only complete once every selected
+ * flag is set, which is how the transmit tail expresses RM0008's EV8_2
+ * (`TXE` together with `BTF`). The Codec converts this selector into the flag
+ * test, so the Driver never performs register-field work.
+ */
+typedef uint16_t								i2c_event_flag_t;
+
+/**
+ * @brief START or repeated START was generated on the bus (`I2Cx_SR1.SB`)
+ * @details
+ * Set by hardware once the peripheral has driven a START or repeated START
+ * onto the bus. A master clears it by reading `SR1` and then writing the
+ * target address byte to `DR`, so the flag both announces the event and
+ * releases the address phase; clearing `PE` clears it as well.
+ * @def I2C_EVENT_FLAG_START_GENERATED
+ */
+#define I2C_EVENT_FLAG_START_GENERATED				((i2c_event_flag_t) 0x0001U)
+
+/**
+ * @brief Target address was sent and acknowledged (`I2Cx_SR1.ADDR`)
+ * @details
+ * Set by hardware after the address byte has shifted out and the target has
+ * acknowledged it, which is the point where the peripheral may stretch `SCL`.
+ * A master clears it with the ordered `SR1` then `SR2` read pair, so the flag
+ * bounds the address phase instead of being cleared speculatively.
+ * @def I2C_EVENT_FLAG_ADDRESS_SENT
+ */
+#define I2C_EVENT_FLAG_ADDRESS_SENT					((i2c_event_flag_t) 0x0002U)
+
+/**
+ * @brief Data register and shift register are both settled (`I2Cx_SR1.BTF`)
+ * @details
+ * Set once a byte has moved between `DR` and the shift register and the next
+ * transfer step would need software service. In transmit it becomes set only
+ * after the final byte leaves `DR` and drains from the shift register, so it
+ * is the safe point to request STOP without truncating the last byte.
+ * @def I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED
+ */
+#define I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED		((i2c_event_flag_t) 0x0004U)
+
+/**
+ * @brief Transmit data register is empty (`I2Cx_SR1.TXE`)
+ * @details
+ * Set while `DR` can accept the next byte. It is cleared by the `DR` write
+ * that fills it, by a START or STOP request, or by clearing `PE`, so it is the
+ * pacing condition for every byte of a transmit payload.
+ * @def I2C_EVENT_FLAG_DATA_REGISTER_EMPTY
+ */
+#define I2C_EVENT_FLAG_DATA_REGISTER_EMPTY			((i2c_event_flag_t) 0x0080U)
+
+/**
+ * @brief Transmit tail is complete: `TXE` and `BTF` are set together
+ * @details
+ * Composite selector matching RM0008's EV8_2. Requiring both flags at once
+ * means the caller waits for the last byte to leave the shift register instead
+ * of treating an empty `DR` alone as completion, which would let a STOP
+ * request truncate the final byte.
+ * @def I2C_EVENT_FLAG_TRANSFER_COMPLETE
+ */
+#define I2C_EVENT_FLAG_TRANSFER_COMPLETE			((i2c_event_flag_t) (I2C_EVENT_FLAG_DATA_REGISTER_EMPTY | I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED))
 
 /** @} */ // I2C_02_DataTypes
 

@@ -463,8 +463,9 @@ fails before MMIO.
 
 Own-address registers remain at reset/unowned values in the admitted
 controller-only scope. IRQ gates, DMAEN/LAST, GPIO/AFIO, NVIC, and RCC gate
-state are not members of `i2c_config_t`. `I2C_DeInit` pulses the matching
-APB1 reset through RCC and leaves clock/NVIC/GPIO state unchanged.
+state are not members of `i2c_config_t`. `I2C_DeInit` refuses a busy bus, then
+pulses the matching APB1 reset through RCC and leaves clock/NVIC/GPIO state
+unchanged.
 
 ## Timing Register Theory
 
@@ -689,8 +690,9 @@ the first transaction mutation.
 
 1. Validate all input/state and confirm `SR2.BUSY=0` before a fresh message.
 2. Stage/write CR1 `START=1`; do not write CR1 again until hardware clears it.
-3. Wait for `SB=1`; timeout or BERR during START performs CR1.SWRST recovery
-   per ES096 2.8.4, restores configuration, and reports the recovery result.
+3. Wait for `SB=1`; a timeout or BERR during START is reported as the primary
+   failure. `CR1.SWRST` recovery is deferred to the Wave 6 recovery closure and
+   remains application-owned until then.
 4. Read SR1 as the first half of EV5, then write one encoded address byte to DR.
 5. Wait for `ADDR=1` or AF/error. AF before ADDR is address NACK.
 6. Clear ADDR only by the ordered SR1 then SR2 reads. SR2 is never sampled
@@ -757,8 +759,11 @@ passes when either bit is set.
   RMW. Never clear unobserved errors accidentally.
 - Restore ACK=1 and POS=0 only when START/STOP action rules permit CR1 access.
 - If STOP/BUSY does not complete, report stuck BUSY and leave GPIO recovery to
-  BSP/application. CR1.SWRST is attempted where ES096/RM0008 permits it.
-- The final return status describes operation success/failure and preserves the exact cause, progress, and recovery outcome.
+  BSP/application. `CR1.SWRST` recovery is deferred to the Wave 6 recovery
+  closure and is never attempted by the admitted transfer transaction.
+- The final return status describes operation success/failure and preserves the
+  exact primary cause. Byte-level progress is not published, because the
+  partial-progress result type was removed from the public surface.
 
 ## Event, Error, Interrupt, and NVIC Model
 
@@ -886,11 +891,11 @@ evidence.
 
 | Public operation | Driver validation/order | Codec | LL/registers | Flags/errors | Status/result | Planned verification | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `I2C_DeInit` | Instance, RCC gate; decode reset mask; pulse reset | N/A; no I2C register image is staged | RCC peer; no I2C MMIO required | N/A | success/invalid/state | peer-call trace | `IMPLEMENTED` |
+| `I2C_DeInit` | Instance, RCC gate, idle bus; decode reset mask; pulse reset | N/A; no I2C register image is staged | read SR2; RCC peer reset pulse | BUSY | success/null/invalid/state/busy | peer-call trace | `IMPLEMENTED` |
 | `I2C_Init` | Full preflight; snapshot; all staging; dirty commit CR2/CCR/TRISE/CR1 | Extract PE; validate START/STOP action idle; stage timing and baseline | read/write CR1, CR2, CCR, TRISE; read SR2 | BUSY, action state | success/null/invalid/state | timing boundaries, no-write-on-error, MMIO order | `IMPLEMENTED` |
 | `I2C_GetOperationState` | Validate instance/RCC; one CR1 snapshot | Extract PE | read CR1 | PE | OFF/ON/error | valid/error fake register | `CONTRACT-FROZEN` |
 | `I2C_SetOperationState` | Validate state/config/BUSY; one CR1 image; stage/write | Stage PE | read/write CR1 | PE, BUSY, START/STOP | success/error | preservation/action checks | `CONTRACT-FROZEN` |
-| `I2C_MasterTransmit` | Preflight; BUSY; START/address; TX loop; BTF; STOP; cleanup | Address byte, errors, CR1 actions, W0C ack | CR1, DR, SR1, SR2 | SB, ADDR, TXE, BTF; AF/BERR/ARLO/OVR/TIMEOUT | exact result/progress | full event traces and injected failures | `CONTRACT-FROZEN` |
+| `I2C_MasterTransmit` | Full preflight; one CR1 snapshot; BUSY; latched-error refusal; shared budget; START/address; TX loop; EV8_2; STOP; bus idle; single cleanup | Address byte, errors, CR1 actions, W0C ack | CR1, DR, SR1, SR2 | SB, ADDR, TXE, BTF; AF/BERR/ARLO/OVR/TIMEOUT | success/null/invalid/state/busy/fail/timeout; primary failure only | full event traces and injected failures | `IMPLEMENTED` |
 | `I2C_MasterReceive` | Preflight; START/address; select N=1/2/>2 tail; critical sections; STOP; restore | Address, ACK/POS/action/error images | CR1, DR, SR1, SR2 | SB, ADDR, RXNE, BTF and all errors | exact result/partial RX | tail traces, interrupt-window harness, errata cases | `CONTRACT-FROZEN` |
 | `I2C_MasterWriteRead` | TX without STOP; final BTF; repeated START; selected RX tail | Same reusable transforms | Same named LL paths | both phase events/errors | separate TX/RX progress | repeated-START traces at 88/100/400 kHz policies | `CONTRACT-FROZEN` |
 
@@ -955,7 +960,7 @@ are frozen above; implementation may build the demanded foundation bottom-up.
 | 1 | Core, public vocabulary, legal LL | DRV-006/009, LL-001/002/003, CORE-001/002, DOC-002 | Add types/defines/config; correct Core qualifiers/masks; replace LL with demanded one-transfer surface | Wave 0 reviewed | compile/layout/access-direction/style tests pass | `PLANNED` |
 | 2 | Pure Codec | CODEC-001/002 | Implement timing, baseline, operation, address, error extraction/W0C, action staging and pure tests | Wave 1 types/register contracts frozen | all selector/boundary/preservation/publication tests pass | `PLANNED` |
 | 3 | Lifecycle/configuration | DRV-001/002/010, CMAKE-001 | Implement topology, RCC validation/reset, DeConfig/Config/operation pair; no transfer yet | Waves 1-2 pass | warning-clean build; no-write-on-error and MMIO order traces pass | `PLANNED` |
-| 4 | Bounded transmit | DRV-003/005/007/008 | Implement common poll/error engine, START/address, transmit, STOP, progress/cleanup | Wave 3 configured-state contract passes | all EV/error/timeout traces pass | `PLANNED` |
+| 4 | Bounded transmit | DRV-003/005/007/008 | Implement common poll/error engine, START/address, transmit, STOP, cleanup | Wave 3 configured-state contract passes | all EV/error/timeout traces pass | `IMPLEMENTED`; byte-progress publication dropped with `i2c_transfer_result_t` |
 | 5 | Receive and repeated START | DRV-004, ERR-001 | Implement N=1/N=2/N>2, critical windows, combined transfer, ES096 speed gate | Wave 4 stable; interrupt-mask primitive reviewed | tail/repeated-START/errata trace and target stress evidence pass | `PLANNED` |
 | 6 | Recovery closure | DRV-003/007, ERR-001 | Complete SWRST/config restore, stuck-BUSY result, all error injection and partial-progress contracts | Waves 4-5 pass | every post-START failure reaches one proven cleanup state | `PLANNED` |
 | 7 | Legacy cleanup/documentation | RB-001, DMA placeholder, IRQ placeholder, DOC findings | Remove dead legacy/placeholder files or content; full Doxygen pass; keep SSD1306 untouched | Accepted API consumers within scope build | zero unclassified I2C symbols; docs/style/build clean | `PLANNED` |

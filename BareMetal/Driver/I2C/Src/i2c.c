@@ -109,82 +109,299 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
 }
 
 // ==================================================================================================== //
-// I2C Helper Functions
+// I2C Transaction Helpers
 // ==================================================================================================== //
 
 /**
- * @brief Generates a START condition on the I2C bus
+ * @brief Waits for one SR1 event inside the shared transaction poll budget
  * @details
- * Stages a START condition in the I2C control register and waits for the start
- * condition to be detected. The function polls the status register until the
- * start condition is detected or the timeout expires.
- *
- * @param[in] I2Cx			I2C peripheral instance
- * @param[in] timeout_ms	Timeout in milliseconds
- * @returns @ref driver_status_t "I2C start generation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: START condition was generated successfully
- * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: Timeout occurred while waiting for start condition
+ * Samples `SR1` once per iteration and decodes the error flags before testing
+ * @p `eventFlag`, so a hardware error ends the wait immediately instead of
+ * being reported later as a plain timeout. Every sample consumes one poll from
+ * @p `pPollBudget`, which the caller owns for the complete transaction; the
+ * loop therefore cannot outlive the single timeout the public API promised.
+ * A composite selector such as @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` only
+ * succeeds once every selected flag is set together.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @param[in] eventFlag `SR1` event selector to wait for
+ * Accepted values:
+ * - Any selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`
+ * @param[in,out] pPollBudget Remaining transaction poll budget
+ * Expected values:
+ * - Non-`NULL`: Decremented once per `SR1` sample
+ * @returns @ref driver_status_t "Event-wait status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Every selected event flag was observed
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `eventFlag` is not an admitted selector
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: An `SR1` error flag was observed first
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: @p `pPollBudget` was exhausted
+ * @note The error flag behind an @ref `DRIVER_STATUS_ERROR_FAIL` result is left
+ * latched, because the caller still has to preserve and acknowledge it
+ * @pre The peripheral is enabled and the caller holds the instance exclusively
  */
-__STATIC driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, const uint32_t timeout_ms)
+__STATIC driver_status_t _I2C_WaitForEvent
+(
+	I2C_TypeDef* const			I2Cx,
+	const i2c_event_flag_t		eventFlag,
+	uint32_t* const				pPollBudget
+)
 {
 	// Local Variables
-	reg cr1RegImage = 0x00000000UL;
-	uint32_t pollBudget = (timeout_ms * I2C_DRIVER_POLL_BUDGET_PER_MS);
+	reg sr1RegImage = 0x00000000UL;
+	i2c_error_t sampledError = I2C_ERROR_NONE;
+	driver_status_t sampleStatus = DRIVER_STATUS_ERROR;
 
-	//! Read current CR1 register image, stage a START condition, and write it back to the hardware.
-	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
-	ASSERT_DRIVER_STATUS(Codec_I2C_StageStart(&cr1RegImage));
-	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
-
-	//! Bounded Wait
-	while (pollBudget > 0U)
+	//! A missing caller budget would turn every wait into an unbounded loop, so it
+	//! is refused before the first status sample is taken.
+	if (pPollBudget == NULL)
 	{
-		//! Read SR1 to detect START Condition
-		if (Codec_I2C_IsStartCondition(LL_I2C_ReadSR1(I2Cx)) == DRIVER_STATUS_SUCCESS)
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	while (*pPollBudget > 0U)
+	{
+		//! One sample per iteration: the same `SR1` image answers both the error
+		//! question and the event question, so no flag can appear between them.
+		sr1RegImage = LL_I2C_ReadSR1(I2Cx);
+		(*pPollBudget)--;
+
+		//! Errors are decoded first because a NACK or bus error also leaves the
+		//! awaited event clear; reporting the timeout instead would hide the cause.
+		sampleStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
+		if (sampleStatus != DRIVER_STATUS_SUCCESS)
+		{
+			return sampleStatus;
+		}
+		if (sampledError != I2C_ERROR_NONE)
+		{
+			return DRIVER_STATUS_ERROR_FAIL;
+		}
+
+		sampleStatus = Codec_I2C_IsEventPending(sr1RegImage, eventFlag);
+		if (sampleStatus == DRIVER_STATUS_SUCCESS)
 		{
 			return DRIVER_STATUS_SUCCESS;
 		}
-		pollBudget--;
+		//! Only the plain "not pending yet" answer may keep polling: a rejected
+		//! selector is a programming error and must not burn the whole budget.
+		if (sampleStatus != DRIVER_STATUS_ERROR)
+		{
+			return sampleStatus;
+		}
 	}
 
 	return DRIVER_STATUS_ERROR_TIMEOUT;
 }
 
 /**
- * @brief Generates a STOP condition on the I2C bus
+ * @brief Requests a START condition and waits for the SB event
  * @details
- * Stages a STOP condition in the I2C control register and waits for the bus
- * to become idle. The function polls the status register until the bus is
- * no longer busy or the timeout expires.
- * @param[in] I2Cx			I2C peripheral instance
- * @param[in] timeout_ms	Timeout in milliseconds
- * @returns @ref driver_status_t "I2C stop generation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP condition was generated successfully
- * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: Timeout occurred while waiting for bus idle
+ * Reads `CR1`, stages `START`, and writes the image unconditionally, because
+ * `START` is an action request whose equal-value write still matters and must
+ * never be suppressed by a compare-and-write optimisation. The completion wait
+ * samples `SR1` for `SB`, which is the first half of RM0008's EV5 sequence, so
+ * the caller's following `DR` write is what completes the event.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @param[in,out] pPollBudget Remaining transaction poll budget
+ * Expected values:
+ * - Non-`NULL`: Decremented once per `SR1` sample
+ * @returns @ref driver_status_t "START generation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: START was requested and `SB` was observed
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: An `SR1` error flag was observed before `SB`
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: @p `pPollBudget` was exhausted
+ * @note @ref `DRIVER_STATUS_ERROR_INVALID_ARG` cannot occur here because this
+ * helper always waits for the fixed @ref `I2C_EVENT_FLAG_START_GENERATED` selector
+ * @pre The peripheral is enabled and neither `START` nor `STOP` is still pending
  */
-__STATIC driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx, const uint32_t timeout_ms)
+__STATIC driver_status_t _I2C_GenerateStart(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
 {
-	// Local Variables
+	// Local Variable
 	reg cr1RegImage = 0x00000000UL;
-	uint32_t pollBudget = (timeout_ms * I2C_DRIVER_POLL_BUDGET_PER_MS);
 
-	//! Read current CR1 register image, stage a STOP condition, and write it back to the hardware.
+	//! Stage on the caller-owned image first: an action request is only published
+	//! once the whole image is known to be valid.
+	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
+	ASSERT_DRIVER_STATUS(Codec_I2C_StageStart(&cr1RegImage));
+
+	//! Write unconditionally so the request reaches the peripheral even when the
+	//! staged image matches the snapshot of an already-requested START.
+	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
+
+	return _I2C_WaitForEvent(I2Cx, I2C_EVENT_FLAG_START_GENERATED, pPollBudget);
+}
+
+/**
+ * @brief Requests a STOP condition on the I2C bus
+ * @details
+ * Reads `CR1`, stages `STOP`, and writes the image unconditionally. The request
+ * only asks the peripheral to release the bus once the current byte boundary is
+ * reached, so completion is observed separately by @ref `_I2C_WaitForBusIdle`
+ * rather than being folded into this call.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @returns @ref driver_status_t "STOP request status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: STOP was requested
+ * @note No failure other than an internal Codec pointer rejection is reachable,
+ * because this helper owns the register image it passes on
+ * @pre The peripheral is enabled, still master, and at a byte boundary
+ */
+__STATIC driver_status_t _I2C_GenerateStop(I2C_TypeDef* const I2Cx)
+{
+	// Local Variable
+	reg cr1RegImage = 0x00000000UL;
+
+	//! `STOP` is an action bit that hardware clears once the condition is on the
+	//! wire, so this write is never skipped even when the staged image equals the
+	//! snapshot taken just before it.
 	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
 	ASSERT_DRIVER_STATUS(Codec_I2C_StageStop(&cr1RegImage));
 	LL_I2C_WriteCR1(I2Cx, cr1RegImage);
 
-	//! Bounded Wait
-	while (pollBudget > 0U)
+	return DRIVER_STATUS_SUCCESS;
+}
+
+/**
+ * @brief Waits until the peripheral releases the bus
+ * @details
+ * Polls `SR2.BUSY` until the line is free or the shared budget is exhausted.
+ * `BUSY` is the only flag that reports line ownership instead of transfer
+ * progress, so it is what proves a requested STOP actually took effect.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @param[in,out] pPollBudget Remaining transaction poll budget
+ * Expected values:
+ * - Non-`NULL`: Decremented once per `SR2` sample
+ * @returns @ref driver_status_t "Bus-idle wait status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: `BUSY` was observed clear
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: `BUSY` stayed set until @p `pPollBudget` was exhausted
+ * @pre The peripheral is enabled and the caller owns the instance
+ */
+__STATIC driver_status_t _I2C_WaitForBusIdle(I2C_TypeDef* const I2Cx, uint32_t* const pPollBudget)
+{
+	//! A missing caller budget would make this wait unbounded, so it is refused
+	//! before the first sample.
+	if (pPollBudget == NULL)
 	{
-		//! Read SR2 for BUSY bit to detect if the bus is idle
-		if (Codec_I2C_IsBusBusy(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS)
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	while (*pPollBudget > 0U)
+	{
+		//! The Codec reports "busy" as success, so the idle answer is the error
+		//! value and every other outcome keeps polling.
+		if (Codec_I2C_IsBusBusy(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_ERROR)
 		{
 			return DRIVER_STATUS_SUCCESS;
 		}
-		pollBudget--;
+		(*pPollBudget)--;
 	}
 
 	return DRIVER_STATUS_ERROR_TIMEOUT;
+}
+
+/**
+ * @brief Preserves the primary fault and returns the peripheral to idle
+ * @details
+ * The single cleanup path for every failure after START was requested. It
+ * snapshots `SR1` first, because acknowledging a flag would erase the only
+ * record of why the transaction stopped. The snapshot is decoded into the
+ * primary error, an abort STOP is requested only when the hardware can still
+ * legally accept one, and the observed error flags are then cleared with a
+ * semantic write-zero-to-clear image. Every recovery step is best effort:
+ * @p `primaryStatus` is returned unchanged so a cleanup side effect can never
+ * turn a failed transfer into a reported success or replace its cause.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @param[in] primaryStatus Failure status of the transaction step that stopped the transfer
+ * Accepted values:
+ * - @ref `DRIVER_STATUS_ERROR_FAIL`: A hardware error or protocol violation was observed
+ * - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The shared poll budget was exhausted
+ * @param[in,out] pPollBudget Remaining transaction poll budget
+ * Expected values:
+ * - Non-`NULL`: Consumed by the optional abort-STOP bus-idle wait
+ * @returns @ref driver_status_t "Preserved primary transaction failure"
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: @p `primaryStatus` was a protocol failure
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: @p `primaryStatus` was a budget exhaustion
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pPollBudget` was `NULL`
+ * @note Arbitration loss is never followed by an abort STOP, because hardware
+ * has already released the lines and cleared the master state
+ * @note This helper never requests a software reset; CR1.SWRST recovery is a
+ * separate admission decision and remains out of scope for this transaction
+ * @pre The caller has already requested START at least once
+ */
+__STATIC driver_status_t _I2C_AcknowledgeErrors
+(
+	I2C_TypeDef* const		I2Cx,
+	const driver_status_t	primaryStatus,
+	uint32_t* const			pPollBudget
+)
+{
+	// Local Variables
+	reg sr1Snapshot = 0x00000000UL;
+	reg sr1WriteImage = 0x00000000UL;
+	i2c_error_t latchedError = I2C_ERROR_NONE;
+
+	//! A missing budget would make the abort-STOP wait unbounded, so the caller's
+	//! contract violation is reported instead of guessed around.
+	if (pPollBudget == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	//! Snapshot before any acknowledgement: `SR1` is a live status word, so the
+	//! flag that caused this failure would disappear the moment it is cleared.
+	sr1Snapshot = LL_I2C_ReadSR1(I2Cx);
+
+	//! The destination is a local image, so this decode can only fail if the Codec
+	//! contract changes. Treat that as "no primary error" instead of returning
+	//! early and abandoning the acknowledgement and bus release below.
+	if (Codec_I2C_ExtractError(sr1Snapshot, &latchedError) != DRIVER_STATUS_SUCCESS)
+	{
+		latchedError = I2C_ERROR_NONE;
+	}
+
+	//! An abort STOP is only legal while this peripheral still owns the bus and no
+	//! earlier action is pending. Arbitration loss is excluded explicitly because
+	//! hardware has already released SDA/SCL and returned to slave mode.
+	if ((latchedError != I2C_ERROR_ARBITRATION_LOST) &&
+		(Codec_I2C_ValidateActionIdle(LL_I2C_ReadCR1(I2Cx)) == DRIVER_STATUS_SUCCESS) &&
+		(Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS))
+	{
+		//! Recovery is best effort by contract. Both outcomes are inspected so a
+		//! rejected STOP request does not masquerade as a bus that simply never went
+		//! idle, but neither can replace the cause reported to the caller.
+		if (_I2C_GenerateStop(I2Cx) == DRIVER_STATUS_SUCCESS)
+		{
+			//! A bus that stays busy after the STOP request is the stuck-BUSY case
+			//! ES096 leaves to board-level recovery; this bounded wait therefore adds
+			//! no failure code of its own and lets the primary cause stand.
+			(void) _I2C_WaitForBusIdle(I2Cx, pPollBudget);
+		}
+	}
+
+	//! Acknowledge the observed error set with a semantic write-zero-to-clear image.
+	//! The Codec owns which flags that set contains, so cleanup cannot clear an
+	//! error it never inspected or leave the observed one latched.
+	if (Codec_I2C_StageClearErrors(&sr1WriteImage, sr1Snapshot) == DRIVER_STATUS_SUCCESS)
+	{
+		LL_I2C_WriteSR1(I2Cx, sr1WriteImage);
+	}
+
+	return primaryStatus;
 }
 
 // ==================================================================================================== //
@@ -432,7 +649,170 @@ driver_status_t I2C_MasterTransmit
 	const uint32_t				timeout_ms
 )
 {
+	// Local Variables
+	reg clockEnableMask = 0x00000000UL;
+	reg cr1RegImage = 0x00000000UL;
+	reg sr1Snapshot = 0x00000000UL;
+	i2c_error_t latchedError = I2C_ERROR_NONE;
+	i2c_data_length_t byteIndex = 0U;
+	uint32_t pollBudget = 0x00000000UL;
+	driver_status_t transactionStatus = DRIVER_STATUS_SUCCESS;
 
+	// Validate Input
+	if ((I2Cx == NULL) || (pData == NULL))
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+	// Validate the range for input parameters
+	if ((I2C_IS_VALID_INSTANCE(I2Cx) == 0U) || (I2C_IS_VALID_ADDRESS(slaveAddress) == 0U))
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+	//! A zero-byte message and a zero-millisecond budget cannot describe a transfer,
+	//! and a millisecond value whose poll product would overflow the 32-bit counter is
+	//! refused here instead of wrapping into a premature timeout mid-message.
+	if ((size == 0U) || (timeout_ms == 0U) || (timeout_ms > (UINT32_MAX / I2C_DRIVER_POLL_BUDGET_PER_MS)))
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
+	//! The APB1 gate is application-owned, so observe it instead of enabling it. The
+	//! gate must be proven on before the first register read, because a powered-down
+	//! peripheral returns undefined data that could fake an enabled, idle controller.
+	clockEnableMask = _I2C_GetAPB1ClockEnableMask(I2Cx);
+	if (clockEnableMask == 0x00000000UL)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+	if (RCC_GetPeripheralClockState(RCC_APB1_BUS, clockEnableMask) != DRIVER_STATUS_ON)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
+	//! Snapshot `CR1` once and answer both lifecycle preconditions from that single
+	//! image, so the enabled and action-idle tests describe one hardware moment.
+	cr1RegImage = LL_I2C_ReadCR1(I2Cx);
+
+	//! Validate Driver is Enabled
+	if (Codec_I2C_ExtractOperationState(cr1RegImage) != DRIVER_STATUS_ON)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
+	//! A START or STOP bit that hardware has not retired yet belongs to a sequence
+	//! already in flight, so a second message now would interleave two transactions.
+	if (Codec_I2C_ValidateActionIdle(cr1RegImage) != DRIVER_STATUS_SUCCESS)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
+	//! A busy bus means another controller owns the lines, so requesting START here
+	//! would corrupt the message currently on the wire.
+	if (Codec_I2C_IsBusBusy(LL_I2C_ReadSR2(I2Cx)) == DRIVER_STATUS_SUCCESS)
+	{
+		return DRIVER_STATUS_ERROR_BUSY;
+	}
+
+	//! An error flag latched by an earlier aborted transaction would be decoded by
+	//! this message's first event wait as its own failure, so it is refused while no
+	//! transaction MMIO has happened and the application can still clear it.
+	sr1Snapshot = LL_I2C_ReadSR1(I2Cx);
+	if (Codec_I2C_ExtractError(sr1Snapshot, &latchedError) != DRIVER_STATUS_SUCCESS)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+	if (latchedError != I2C_ERROR_NONE)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
+	//! One budget for the whole message: START, the address phase, every payload
+	//! byte, the EV8_2 tail, the STOP request, and the final bus-idle wait all draw
+	//! from this counter, so the API honours exactly one timeout argument.
+	pollBudget = (timeout_ms * I2C_DRIVER_POLL_BUDGET_PER_MS);
+
+	//! START is the boundary after which every failure must leave through the single
+	//! cleanup path below instead of a plain early return.
+	transactionStatus = _I2C_GenerateStart(I2Cx, &pollBudget);
+
+	//! EV5: the `SB` sample inside the START wait is the required first half, so the
+	//! encoded address byte written here completes the event and commits this
+	//! controller to the write direction.
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		LL_I2C_WriteDR(I2Cx, (reg) Codec_I2C_EncodeAddressByte(slaveAddress, 0U));
+		transactionStatus = _I2C_WaitForEvent
+		(
+			I2Cx,
+			I2C_EVENT_FLAG_ADDRESS_SENT,
+			&pollBudget
+		);
+	}
+
+	//! EV6: `ADDR` is released only by the ordered `SR1`-then-`SR2` read pair, so this
+	//! single `SR2` sample is mandatory; its master bit also proves the address phase
+	//! still owned the bus before the payload starts.
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		if (Codec_I2C_IsMasterMode(LL_I2C_ReadSR2(I2Cx)) != DRIVER_STATUS_SUCCESS)
+		{
+			transactionStatus = DRIVER_STATUS_ERROR_FAIL;
+		}
+	}
+
+	//! EV8: with `ADDR` released the peripheral accepts one byte per `TXE`, so the
+	//! payload is paced by the same shared budget instead of a per-byte timeout.
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		for (byteIndex = 0U; byteIndex < size; byteIndex++)
+		{
+			transactionStatus = _I2C_WaitForEvent
+			(
+				I2Cx,
+				I2C_EVENT_FLAG_DATA_REGISTER_EMPTY,
+				&pollBudget
+			);
+			if (transactionStatus != DRIVER_STATUS_SUCCESS)
+			{
+				break;
+			}
+			LL_I2C_WriteDR(I2Cx, (reg) pData[byteIndex]);
+		}
+	}
+
+	//! EV8_2: `TXE` and `BTF` together prove the last byte has left the shift
+	//! register, so the STOP requested next cannot truncate the message.
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		transactionStatus = _I2C_WaitForEvent
+		(
+			I2Cx,
+			I2C_EVENT_FLAG_TRANSFER_COMPLETE,
+			&pollBudget
+		);
+	}
+
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		transactionStatus = _I2C_GenerateStop(I2Cx);
+	}
+
+	//! STOP is only a request, so the bounded `BUSY` wait is what proves the lines
+	//! were actually released before this call reports success.
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		transactionStatus = _I2C_WaitForBusIdle(I2Cx, &pollBudget);
+	}
+
+	if (transactionStatus == DRIVER_STATUS_SUCCESS)
+	{
+		return DRIVER_STATUS_SUCCESS;
+	}
+
+	//! Single cleanup path for every post-START failure: it preserves the primary
+	//! cause, releases the bus when the hardware still allows it, and clears only the
+	//! error flags it observed.
+	return _I2C_AcknowledgeErrors(I2Cx, transactionStatus, &pollBudget);
 }
 
 driver_status_t I2C_MasterReceive

@@ -28,6 +28,8 @@
 #define I2C_CODEC_CCR_VALUE_MASK				((reg) 0x0FFFU)
 /** @brief TRISE value field mask @def I2C_CODEC_TRISE_VALUE_MASK */
 #define I2C_CODEC_TRISE_VALUE_MASK				((reg) 0x3FU)
+/** @brief SR1 flags whose zero-write clears them; status/event flags are excluded so an acknowledgement never discards an unread event @def I2C_CODEC_SR1_ERROR_MASK */
+#define I2C_CODEC_SR1_ERROR_MASK				((reg) (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_AF | I2C_SR1_OVR | I2C_SR1_PECERR | I2C_SR1_TIMEOUT | I2C_SR1_SMBALERT))
 /** @brief Hertz per megahertz @def I2C_CODEC_HZ_PER_MHZ */
 #define I2C_CODEC_HZ_PER_MHZ					((frequency_t) 1000000U)
 /** @brief Standard-mode minimum APB1 frequency in MHz @def I2C_CODEC_STD_MODE_MIN_FREQ_MHZ */
@@ -427,7 +429,7 @@ driver_status_t Codec_I2C_ExtractError(const reg sr1RegImage, i2c_error_t* const
 	return DRIVER_STATUS_SUCCESS;
 }
 
-driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1Snapshot, const reg errorsToClear)
+driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1Snapshot)
 {
 	if (pWriteImage == NULL)
 	{
@@ -435,17 +437,27 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
 	}
 
 	//! SR1 error flags are write-0-to-clear: the staged image writes 0 to every
-	//! selected error flag and 1 to every other writable bit, so unobserved flags are
-	//! preserved and only the caller-acknowledged set is cleared.
-	*pWriteImage = sr1Snapshot & ~errorsToClear;
+	//! acknowledged error flag and writes 1 to every other writable bit, so errors
+	//! that were never inspected stay latched and only the observed set is cleared.
+	*pWriteImage = sr1Snapshot & ~I2C_CODEC_SR1_ERROR_MASK;
 
 	return DRIVER_STATUS_SUCCESS;
 }
 
-driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage)
+driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_flag_t eventFlag)
 {
-	//! Is Start Bit Flag Set?
-	if ((sr1RegImage & I2C_SR1_SB) != 0U)
+	//! An unknown selector must not be answered with "not pending", because that
+	//! would turn a caller's vocabulary mistake into a silent transfer timeout.
+	if (I2C_IS_VALID_EVENT_FLAG(eventFlag) == 0U)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
+	//! Comparing the masked image against the selector itself means "all selected
+	//! flags set". For a single-flag selector that is the ordinary set test; for the
+	//! composite completion selector it proves TXE and BTF are both asserted, so a
+	//! freshly emptied DR alone never reports the tail as finished.
+	if ((sr1RegImage & (reg) eventFlag) == (reg) eventFlag)
 	{
 		return DRIVER_STATUS_SUCCESS;
 	}
@@ -457,6 +469,18 @@ driver_status_t Codec_I2C_IsBusBusy(const reg sr2RegImage)
 {
 	//! Is Bus Busy Flag Set?
 	if ((sr2RegImage & I2C_SR2_BUSY) != 0U)
+	{
+		return DRIVER_STATUS_SUCCESS;
+	}
+
+	return DRIVER_STATUS_ERROR;
+}
+
+driver_status_t Codec_I2C_IsMasterMode(const reg sr2RegImage)
+{
+	//! MSL is set only while this peripheral is the active master, so it is the
+	//! authority for deciding whether an abort STOP request is still meaningful.
+	if ((sr2RegImage & I2C_SR2_MSL) != 0U)
 	{
 		return DRIVER_STATUS_SUCCESS;
 	}

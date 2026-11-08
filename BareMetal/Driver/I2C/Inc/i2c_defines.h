@@ -122,6 +122,61 @@ typedef uint8_t								i2c_fast_duty_t;
 
 /** @} */ // I2C_02_Defines_03_FastDuty
 
+/**
+ * @defgroup I2C_02_Defines_04_Transfers I2C Transfer Selectors
+ * @ingroup I2C_02_Defines
+ * @brief Admitted target-address range and transaction event-flag selectors
+ * @details
+ * Bounds the 7-bit target-address vocabulary accepted by the synchronous
+ * transfer APIs and validates the `SR1` event masks the Driver may wait for.
+ * Reserved addresses are excluded at the Driver boundary so a transfer request
+ * can never silently address a reserved device or another controller. The
+ * event selectors keep the raw status bits in the Codec while still letting
+ * the Driver name exactly which hardware event a step is waiting for.
+ * @{
+ */
+
+/** @brief Lowest address in the admitted non-reserved 7-bit target range @def I2C_ADDRESS_MIN_7BIT */
+#define I2C_ADDRESS_MIN_7BIT				((i2c_address_t) 0x08U)
+/** @brief Highest address in the admitted non-reserved 7-bit target range @def I2C_ADDRESS_MAX_7BIT */
+#define I2C_ADDRESS_MAX_7BIT				((i2c_address_t) 0x77U)
+
+/**
+ * @def I2C_IS_VALID_ADDRESS
+ * @brief Validates an unshifted 7-bit I2C target address
+ * @details
+ * Accepts only the non-reserved 7-bit range, so the two reserved blocks
+ * `0x00`..`0x07` and `0x78`..`0x7F` are refused before any bus activity.
+ * @param[in] slaveAddress Unshifted 7-bit target address to validate
+ * @returns I2C Target Address Validation Result
+ * @retval - `0x00U`: Address is reserved or outside the 7-bit range
+ * @retval - `0x01U`: Address is inside `0x08U`..`0x77U`
+ */
+#define I2C_IS_VALID_ADDRESS(slaveAddress)	\
+	(((slaveAddress) >= I2C_ADDRESS_MIN_7BIT) && ((slaveAddress) <= I2C_ADDRESS_MAX_7BIT))
+
+/**
+ * @def I2C_IS_VALID_EVENT_FLAG
+ * @brief Validates an `SR1` event-flag selector
+ * @details
+ * Admits exactly the published selectors, including the composite
+ * @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` mask that the transmit tail needs so
+ * a partially satisfied completion request cannot be mistaken for an unknown
+ * selector.
+ * @param[in] eventFlag Event-flag mask to validate
+ * @returns I2C Event-Flag Validation Result
+ * @retval - `0x00U`: Mask is not an admitted selector
+ * @retval - `0x01U`: Mask is an admitted selector
+ */
+#define I2C_IS_VALID_EVENT_FLAG(eventFlag)	\
+	(((eventFlag) == I2C_EVENT_FLAG_START_GENERATED) ||	\
+	((eventFlag) == I2C_EVENT_FLAG_ADDRESS_SENT) ||	\
+	((eventFlag) == I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED) ||	\
+	((eventFlag) == I2C_EVENT_FLAG_DATA_REGISTER_EMPTY) ||	\
+	((eventFlag) == I2C_EVENT_FLAG_TRANSFER_COMPLETE))
+
+/** @} */ // I2C_02_Defines_04_Transfers
+
 /** @} */ // I2C_02_Defines
 
 /**

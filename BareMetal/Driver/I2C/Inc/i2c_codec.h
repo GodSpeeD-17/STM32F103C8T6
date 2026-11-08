@@ -7,8 +7,9 @@
  * @details
  * Pure transformation layer between the I2C Driver and the I2C LL. Owns
  * selector-to-field encoding, address-byte construction, timing calculation,
- * error extraction, and CR1 action staging over caller-owned reg images.
- * No MMIO, polling, topology, clock, reset, NVIC, or sequencing work.
+ * event-flag decoding, error extraction and acknowledgement, and CR1 action
+ * staging over caller-owned reg images. No MMIO, polling, topology, clock,
+ * reset, NVIC, or sequencing work.
  */
 
 // Header Guards
@@ -266,44 +267,54 @@ driver_status_t Codec_I2C_ExtractError(const reg sr1RegImage, i2c_error_t* const
 /**
  * @brief Stages a write-zero-to-clear error image from an SR1 snapshot
  * @details
- * Clears only the selected error bits by writing `0` to them while
- * preserving all other bits from the snapshot (W0C semantics).
+ * Clears the acknowledged error set by writing `0` to each selected error
+ * flag while preserving every other bit from the snapshot (W0C semantics).
+ * The selected set is owned here rather than at the call site, so a Driver
+ * cannot widen or narrow the acknowledgement and accidentally leave an
+ * observed error latched or clear a flag it never inspected. Status and event
+ * flags outside the error set are written back unchanged, because writing `0`
+ * to them would discard an unread event notification.
  * @param[out] pWriteImage Caller-owned output image (value to write)
  * Expected values:
  * - Non-`NULL`: Receives the staged clear image
  * @param[in] sr1Snapshot `SR1` snapshot to derive the clear image from
  * Expected values:
  * - Any valid `I2Cx_SR1` image captured by the Driver
- * @param[in] errorsToClear Mask of error bits to clear
- * Accepted values:
- * - Any combination of `I2C_SR1_*` error flag masks
  * @returns @ref driver_status_t "Codec staging status"
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: Clear image was staged
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pWriteImage` was `NULL`
  * @note Unrelated bits are preserved from the snapshot
+ * @note The image must be written without a read-modify-write cycle, because
+ * `SR1` clears a flag on the zero written here and not on the live value
  */
-driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1Snapshot, const reg errorsToClear);
+driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1Snapshot);
 
 // ==================================================================================================== //
 // I2C SR1/SR2 Status Flag Codec
 // ==================================================================================================== //
 
 /**
- * @brief Reports whether the START condition has been generated (SB set)
+ * @brief Validates that every selected event flag in an SR1 image is pending
  * @details
- * Tests `I2Cx_SR1.SB` without exposing the raw register bit to callers.
- * Returns @ref `DRIVER_STATUS_SUCCESS` when SB is set and
- * @ref `DRIVER_STATUS_ERROR` otherwise. The Driver uses this to
- * boundedly poll for START generation completion.
+ * Tests each bit named by @p `eventFlag` without exposing raw register bits to
+ * the Driver. A single-flag selector reports one hardware event; the composite
+ * @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` selector reports the transmit tail
+ * only when `TXE` and `BTF` are set together, which is RM0008's EV8_2. A
+ * partially satisfied composite selector is reported as a plain negative so a
+ * caller cannot mistake it for completion.
  * @param[in] sr1RegImage I2C `SR1` register image
  * Expected values:
  * - Any valid `I2Cx_SR1` image captured by the Driver
- * @returns @ref driver_status_t "START-condition status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: SB is set (START generated)
- * @retval - @ref `DRIVER_STATUS_ERROR`: SB is clear
+ * @param[in] eventFlag Event-flag selector to test
+ * Accepted values:
+ * - Any selector admitted by @ref `I2C_IS_VALID_EVENT_FLAG`
+ * @returns @ref driver_status_t "SR1 event-pending validation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Every selected flag is set
+ * @retval - @ref `DRIVER_STATUS_ERROR`: At least one selected flag is clear
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `eventFlag` is not an admitted selector
  * @note This Codec performs no MMIO and does not validate the instance
  */
-driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage);
+driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_flag_t eventFlag);
 
 /**
  * @brief Reports whether the I2C bus is busy (BUSY set)
@@ -311,7 +322,8 @@ driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage);
  * Tests `I2Cx_SR2.BUSY` without exposing the raw register bit to callers.
  * Returns @ref `DRIVER_STATUS_SUCCESS` when BUSY is set and
  * @ref `DRIVER_STATUS_ERROR` otherwise. The Driver uses this to
- * boundedly poll for bus idle after a STOP condition.
+ * boundedly poll for bus idle after a STOP condition and to refuse a fresh
+ * message while another controller owns the lines.
  * @param[in] sr2RegImage I2C `SR2` register image
  * Expected values:
  * - Any valid `I2Cx_SR2` image captured by the Driver
@@ -321,6 +333,25 @@ driver_status_t Codec_I2C_IsStartCondition(const reg sr1RegImage);
  * @note This Codec performs no MMIO and does not validate the instance
  */
 driver_status_t Codec_I2C_IsBusBusy(const reg sr2RegImage);
+
+/**
+ * @brief Reports whether the peripheral currently owns the bus (MSL set)
+ * @details
+ * Tests `I2Cx_SR2.MSL` without exposing the raw register bit to callers.
+ * Returns @ref `DRIVER_STATUS_SUCCESS` when the peripheral is the active
+ * master. The Driver uses this before requesting an abort STOP: after
+ * arbitration loss the hardware has already released the lines and cleared
+ * MSL, so a STOP request there would be a meaningless write to a peripheral
+ * that no longer owns the bus.
+ * @param[in] sr2RegImage I2C `SR2` register image
+ * Expected values:
+ * - Any valid `I2Cx_SR2` image captured by the Driver
+ * @returns @ref driver_status_t "Master-mode status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: MSL is set (peripheral is master)
+ * @retval - @ref `DRIVER_STATUS_ERROR`: MSL is clear (peripheral is not master)
+ * @note This Codec performs no MMIO and does not validate the instance
+ */
+driver_status_t Codec_I2C_IsMasterMode(const reg sr2RegImage);
 
 /** @} */ // I2C_04_Codec
 
