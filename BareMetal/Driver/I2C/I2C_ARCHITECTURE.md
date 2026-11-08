@@ -682,13 +682,13 @@ The hardware design balances:
 ## Master Transaction Model
 
 All `wait(flag)` steps share one bounded helper: sample `SR1` once, decode
-errors first, consume one transaction poll, then test the required event.
-Exactly two selectors additionally sample `SR2`: `BUS_IDLE` every iteration
-(bus ownership has no `SR1` flag; `ADDR` cannot be latched while the bus is
-being released), and `ADDRESS_SENT` on the completing iteration, where the
-ordered read-`SR1`-then-read-`SR2` pair is the mandatory `EV6` release plus
-the master-mode proof. Every other wait stays `SR1`-only, because a
-speculative `SR2` sample would release a latched `ADDR` that the step owning
+errors first, consume one transaction poll, then test the required event —
+and only afterwards sample `SR2` if the selector names an `SR2` condition.
+Exactly two selectors earn that `SR2` sample: `BUS_IDLE` every iteration
+(bus ownership has no `SR1` flag), and `ADDRESS_SENT` every iteration of its
+wait, where the ordered read-`SR1`-then-read-`SR2` pair is the mandatory `EV6`
+release plus the master-mode proof. Every other wait stays `SR1`-only, because
+a speculative `SR2` sample would release a latched `ADDR` that the step owning
 the address release must clear explicitly. No step can loop without budget.
 Error cleanup never calls an assertion-style early-return macro after the
 first transaction mutation.

@@ -122,14 +122,15 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
  * loop therefore cannot outlive the single timeout the public API promised.
  * A composite selector such as @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` only
  * succeeds once every selected flag is set together.
- * Exactly two selectors earn an `SR2` sample, each for a hardware reason:
- * @ref `I2C_EVENT_FLAG_BUS_IDLE` reads `SR2` every iteration because bus
- * ownership has no `SR1` flag, and @ref `I2C_EVENT_FLAG_ADDRESS_SENT` reads it
- * on the completing iteration because RM0008's ordered
+ * The `SR2` sample is gated by one flat condition on the two selectors that
+ * name an `SR2` condition: @ref `I2C_EVENT_FLAG_BUS_IDLE` needs it every
+ * iteration because bus ownership has no `SR1` flag, and
+ * @ref `I2C_EVENT_FLAG_ADDRESS_SENT` needs it because RM0008's ordered
  * read-`SR1`-then-read-`SR2` pair is what releases `ADDR` and ends `SCL`
- * stretching. Every other wait stays `SR1`-only, since a speculative `SR2`
- * sample could clear an `ADDR` that that transaction step is not the one
- * owning the address release.
+ * stretching. Every other selector stays `SR1`-only, since a speculative
+ * `SR2` sample could clear an `ADDR` that its owning transaction step has not
+ * reached yet; for the two admitted selectors the pair-clear is harmless or
+ * exactly the required action.
  * @param[in] I2Cx I2C peripheral instance
  * Expected values:
  * - @ref `I2C1`
@@ -194,14 +195,19 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 			return DRIVER_STATUS_ERROR_FAIL;
 		}
 
-		//! `BUS_IDLE` is answered from `SR2` and takes an `SR2` read every
-		//! iteration; `ADDR` cannot be latched while the bus is being released,
-		//! so the pair-clear side effect has no address to harm here.
+		//! Deal with SR1 first, then read SR2 if the selector names an SR2
+		//! condition: bus ownership has no SR1 flag and the ADDRESS_SENT
+		//! release needs the ordered pair, so these two are the only selectors
+		//! that earn the sample; everything else must not speculatively take it.
+		if ((eventFlag == I2C_EVENT_FLAG_ADDRESS_SENT) || (eventFlag == I2C_EVENT_FLAG_BUS_IDLE))
+		{
+			sr2RegImage = LL_I2C_ReadSR2(I2Cx);
+		}
+
+		//! The Codec reports "busy" as success, so the idle answer is the error
+		//! value and every other outcome keeps polling.
 		if (eventFlag == I2C_EVENT_FLAG_BUS_IDLE)
 		{
-			//! The Codec reports "busy" as success, so the idle answer is the error
-			//! value and every other outcome keeps polling.
-			sr2RegImage = LL_I2C_ReadSR2(I2Cx);
 			if (Codec_I2C_IsBusBusy(sr2RegImage) == DRIVER_STATUS_ERROR)
 			{
 				return DRIVER_STATUS_SUCCESS;
@@ -213,13 +219,12 @@ __STATIC_FORCEINLINE driver_status_t _I2C_WaitForEvent
 		if (sampleStatus == DRIVER_STATUS_SUCCESS)
 		{
 			//! EV6: the `SR1` read above is the first half of the mandatory ordered
-			//! pair, so this `SR2` sample releases `ADDR` and ends `SCL` stretching
-			//! in the same iteration the flag was observed; its master bit also
-			//! proves the peripheral still owns the bus before the phase that
-			//! follows starts.
+			//! pair, so the `SR2` sample already taken in this iteration is what
+			//! releases `ADDR` and ends `SCL` stretching; its master bit also
+			//! proves the peripheral still owns the bus before the transmit
+			//! payload phase starts.
 			if (eventFlag == I2C_EVENT_FLAG_ADDRESS_SENT)
 			{
-				sr2RegImage = LL_I2C_ReadSR2(I2Cx);
 				if (Codec_I2C_IsMasterMode(sr2RegImage) != DRIVER_STATUS_SUCCESS)
 				{
 					return DRIVER_STATUS_ERROR_FAIL;

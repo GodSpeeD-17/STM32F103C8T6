@@ -187,10 +187,10 @@ typedef uint16_t								i2c_event_flag_t;
  * against an `SR1` image; the Driver's wait helper branches on the selector
  * explicitly and answers it from `Codec_I2C_IsBusBusy`, keeping the raw bit
  * knowledge in the Codec. The helper reads `SR2` for this selector every
- * iteration — `ADDR` cannot be latched while the bus is being released, so the
- * pair-clear side effect has no address to harm — and it is the only other
- * selector, beside the completing-iteration sample of
- * @ref `I2C_EVENT_FLAG_ADDRESS_SENT`, that earns an `SR2` read at all.
+ * iteration — `ADDR` cannot be harmfully released before it is observed, and
+ * the ordered pair is the mandatory `EV6` clear once it is — and it is one of
+ * the two selectors, beside @ref `I2C_EVENT_FLAG_BUS_IDLE`, that earn an
+ * `SR2` read at all.
  * @def I2C_EVENT_FLAG_BUS_IDLE
  */
 #define I2C_EVENT_FLAG_BUS_IDLE						((i2c_event_flag_t) 0x0002U)
