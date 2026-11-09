@@ -234,50 +234,6 @@ extern "C" {
 #define TIM8									((Adv_TIM_TypeDef*) TIM8_BASE_ADDRESS)
 /** @brief USART1  @def USART1 */
 #define USART1									((USART_TypeDef*) USART1_BASE_ADDRESS)
-/*----------------------------------------------- I2C MACROS -----------------------------------------------*/
-// I2C Speed
-#define I2Cx_SPEED_STD							(FREQ_100kHz)
-#define I2Cx_SPEED_FAST							(FREQ_100kHz << 2)
-// I2C SCL Clock Frequency
-#define I2Cx_SCL_FREQ_4MHz						(0x04)
-#define I2Cx_SCL_FREQ_8MHz						(0x08)
-#define I2Cx_SCL_FREQ_16MHz						(0x10)
-#define I2Cx_SCL_FREQ_32MHz						(0x20)
-#define I2Cx_SCL_FREQ_DEFAULT 					((RCC_GetBusFrequency(RCC_APB1_BUS)) / FREQ_1MHz)
-// I2C Mode
-#define I2Cx_MODE_STD 							(0x00)
-#define I2Cx_MODE_FAST 							(0x01)
-// I2C Interrupt Mapping
-#define I2Cx_IRQ_EVENT 							(0x01)
-#define I2Cx_IRQ_BUFFER 						(0x02)
-#define I2Cx_IRQ_ERROR 							(0x04)
-#define I2Cx_IRQ_ALL 							(I2Cx_IRQ_EVENT | I2Cx_IRQ_BUFFER | I2Cx_IRQ_ERROR)
-// I2C Fast Mode Duty
-#define I2Cx_DUTY_NORMAL						(0x00)
-#define I2Cx_DUTY_FAST							(0x01)
-// I2C Slave R/W Definitions
-#define I2Cx_WRITE								(0x00)
-#define I2Cx_READ								(0x01)
-// I2C Peripheral Definitions
-#define I2C1_SCL_GPIO 							(GPIOB)
-#define I2C1_SCL_PIN 							(GPIOx_PIN_6)
-#define I2C1_SDA_GPIO 							(GPIOB)
-#define I2C1_SDA_PIN 							(GPIOx_PIN_7)
-#define I2C2_SCL_GPIO 							(GPIOB)
-#define I2C2_SCL_PIN 							(GPIOx_PIN_10)
-#define I2C2_SDA_GPIO 							(GPIOB)
-#define I2C2_SDA_PIN 							(GPIOx_PIN_11)
-
-/*----------------------------------------------- SysTick MACROS -----------------------------------------------*/
-// SysTick Clock Selection
-#define SYSTICK_CLK_EXT (0x00)
-#define SYSTICK_CLK_CORE (0x01)
-
-// SysTick Delay
-#define SYSTICK_DELAY_1_US (RCC_GetBusFrequency(RCC_AHB_BUS) / FREQ_1MHz)
-#define SYSTICK_DELAY_2_US (SYSTICK_DELAY_1_US << 1)
-#define SYSTICK_DELAY_1_MS (SYSTICK_DELAY_1_US / FREQ_1kHz)
-#define SYSTICK_DELAYS_2_MS (SYSTICK_DELAY_1_MS << 1)
 
 /*----------------------------------------------- PWM MACROS -----------------------------------------------*/
 // PWM Min Duty Cycle: 1%

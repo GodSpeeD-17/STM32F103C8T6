@@ -209,6 +209,21 @@ extern "C" {
 #define I2C_EVENT_FLAG_DATA_REGISTER_EMPTY			((i2c_event_flag_t) 0x0008U)
 
 /**
+ * @brief Receive data register holds an unread byte (`I2Cx_SR1.RXNE`)
+ * @details
+ * Set by hardware once a received byte has been copied into `DR`. It is
+ * cleared by the `DR` read that consumes the byte, or by clearing `PE`, so it
+ * is the pacing condition for every byte of a receive payload. The
+ * application vocabulary is decoupled from the `SR1` layout: the Selector
+ * Codec translates this selector to the raw `RXNE` flag mask, so the
+ * application value never has to sit on the register bit position. The
+ * Selector Codec owns this mapping for the receive path exactly the way
+ * @ref `I2C_EVENT_FLAG_DATA_REGISTER_EMPTY` owns the transmit side.
+ * @def I2C_EVENT_FLAG_DATA_REGISTER_FULL
+ */
+#define I2C_EVENT_FLAG_DATA_REGISTER_FULL			((i2c_event_flag_t) 0x0020U)
+
+/**
  * @brief Transmit tail is complete: `TXE` and `BTF` are set together
  * @details
  * Composite selector matching RM0008's EV8_2. Requiring both flags at once
@@ -260,6 +275,7 @@ extern "C" {
 	((eventFlag) == I2C_EVENT_FLAG_ADDRESS_SENT) ||				\
 	((eventFlag) == I2C_EVENT_FLAG_BYTE_TRANSFER_FINISHED) ||	\
 	((eventFlag) == I2C_EVENT_FLAG_DATA_REGISTER_EMPTY) ||		\
+	((eventFlag) == I2C_EVENT_FLAG_DATA_REGISTER_FULL) ||		\
 	((eventFlag) == I2C_EVENT_FLAG_TRANSFER_COMPLETE) ||		\
 	((eventFlag) == I2C_EVENT_FLAG_BUS_IDLE)					\
 )

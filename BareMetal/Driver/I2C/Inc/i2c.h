@@ -211,6 +211,82 @@ driver_status_t I2C_MasterTransmit
 	const uint32_t				timeout_ms
 );
 
+/**
+ * @brief Receives one complete bounded message from a 7-bit I2C target
+ * @details
+ * Generates START with the read-direction address byte, consumes every
+ * requested byte on the receive sequence RM0008's polling method 2 prescribes
+ * for the message length, then generates STOP and proves the bus idle:
+ * - @p `size == 1`: the final-byte NACK and the STOP request bracket the
+ *   paired address release, and the single byte is consumed on `RXNE`.
+ * - @p `size == 2`: the NACK is repositioned to the second byte before the
+ *   address phase, cleared right after the paired address release, and both
+ *   final bytes are consumed back to back once `BTF` latches them.
+ * - @p `size > 2`: bytes are consumed on `RXNE` while more than three remain,
+ *   then the NACK is cleared before the stretched tail and a single window
+ *   reads the second-to-last byte, requests STOP, and reads the next-to-last
+ *   byte before the final byte arrives on `RXNE`.
+ * The last byte of every message is NACKed, per the I2C master-receiver rule.
+ * @p `timeout_ms` is transaction-wide exactly as in @ref `I2C_MasterTransmit`:
+ * START, the address phase, every payload byte, the length-specific receive
+ * tail, the STOP retirement, and the closing bus-idle wait all draw from one
+ * poll budget, so the call cannot exceed the single timeout it was given. The
+ * result reports only the primary failure that stopped the transfer.
+ *
+ * @param[in] I2Cx I2C peripheral instance
+ * Accepted values:
+ * - `I2C1`
+ * - `I2C2`
+ * @param[in] slaveAddress Unshifted 7-bit I2C target address
+ * Accepted values:
+ * - `0x08U` through `0x77U`: Non-reserved 7-bit target address
+ * @param[out] pData Destination data buffer
+ * Expected values:
+ * - Non-`NULL`: Destination of @p `size` bytes; receives the bytes read from the bus
+ * @param[in] size Number of bytes to receive
+ * Accepted values:
+ * - Nonzero: Complete message length in bytes
+ * @param[in] timeout_ms Transaction-wide timeout in milliseconds
+ * Accepted values:
+ * - Nonzero: Total polling budget for the complete transaction
+ * @returns @ref driver_status_t "I2C controller receive operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were received and STOP was generated and retired
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
+ * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: I2C is not enabled, a START/STOP request is still pending, or a stale `SR1` error flag is latched
+ * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
+ * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
+ * @retval - @ref `DRIVER_STATUS_ERROR_NO_ACK`: The target did not acknowledge the address
+ * @retval - @ref `DRIVER_STATUS_ERROR_ARBITRATION_LOST`: Arbitration was lost to another master after START
+ * @retval - @ref `DRIVER_STATUS_ERROR_OVERRUN`: An `OVR` condition was flagged after START
+ * @retval - @ref `DRIVER_STATUS_ERROR_LINE_FAULT`: A line-level error (BERR, PECERR, SMBALERT, or SMBus TIMEOUT) was flagged after START
+ * @retval - @ref `DRIVER_STATUS_ERROR_FAIL`: The transfer left master mode without an `SR1` error flag
+ * @pre The application enabled the matching APB1 clock gate through the RCC driver
+ * @pre I2C is configured, enabled, idle, and exclusively owned by the caller
+ * @pre Every `SR1` error flag from an earlier aborted transaction was already acknowledged by the application
+ * @note The final received byte is always NACKed by the tail; the destination
+ * prefix received before a failure is left untouched, because boundary
+ * rollback would require caller-provided scratch storage
+ * @note A failure after START enters the same best-effort cleanup path as the
+ * transmit path: the primary cause is preserved, an abort STOP is requested
+ * only while the peripheral still reports master mode and no action is
+ * pending, and only the observed `SR1` error flags are cleared. A peripheral
+ * that stays busy is left to application-level bus recovery, and `CR1.SWRST`
+ * recovery is not performed by this API
+ * @note A target that does not acknowledge the address is reported as
+ * @ref `DRIVER_STATUS_ERROR_NO_ACK`; the master's own intentional final-byte
+ * NACK never latches `AF`
+ */
+driver_status_t I2C_MasterReceive
+(
+	I2C_TypeDef* const			I2Cx,
+	const i2c_address_t			slaveAddress,
+	i2c_data_t* const			pData,
+	const i2c_data_length_t		size,
+	const uint32_t				timeout_ms
+);
+
 /** @} */ // I2C_03_Driver
 
 // C++ Compatibility

@@ -301,7 +301,9 @@ driver_status_t Codec_I2C_StageClearErrors(reg* const pWriteImage, const reg sr1
  * has to mirror a register layout. A single-flag selector reports one
  * hardware event; the composite
  * @ref `I2C_EVENT_FLAG_TRANSFER_COMPLETE` selector reports the transmit tail
- * only when `TXE` and `BTF` are set together, which is RM0008's EV8_2. A
+ * only when `TXE` and `BTF` are set together, which is RM0008's EV8_2. The
+ * @ref `I2C_EVENT_FLAG_DATA_REGISTER_FULL` selector names the receive-side
+ * `RXNE` condition the same way `DATA_REGISTER_EMPTY` names `TXE`. A
  * partially satisfied composite selector is reported as a plain negative so a
  * caller cannot mistake it for completion.
  * @param[in] sr1RegImage I2C `SR1` register image

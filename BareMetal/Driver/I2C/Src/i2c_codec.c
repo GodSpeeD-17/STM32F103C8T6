@@ -484,6 +484,11 @@ driver_status_t Codec_I2C_IsEventPending(const reg sr1RegImage, const i2c_event_
 			eventMask = I2C_SR1_TXE;
 			break;
 		}
+		case I2C_EVENT_FLAG_DATA_REGISTER_FULL:
+		{
+			eventMask = I2C_SR1_RXNE;
+			break;
+		}
 		case I2C_EVENT_FLAG_TRANSFER_COMPLETE:
 		{
 			eventMask = (I2C_SR1_TXE | I2C_SR1_BTF);

@@ -152,9 +152,17 @@ questions so implementation details cannot silently become architecture:
 
 | Question ID | Scope/wave | Decision or claim requiring evidence | Required evidence | Owner/admission condition | Status |
 | --- | --- | --- | --- | --- | --- |
-| I2C-Q-001 | Wave 5 receive tails | Exact repository primitive for save/mask/restore of processor interrupts | Fake-MMIO ordering trace plus restoration tests from both initially enabled and initially masked states | Driver implementation review before Wave 5 | `DEFERRED` to Wave 5 |
+| I2C-Q-001 | Wave 5 receive tails | Exact repository primitive for save/mask/restore of processor interrupts | Fake-MMIO ordering trace plus restoration tests from both initially enabled and initially masked states | Driver implementation review before Wave 5 | `RESOLVED`: the primitive is `_I2C_EnterCritical`/`_I2C_ExitCritical` over CMSIS `PRIMASK` save/mask/restore in `i2c.c` |
 | I2C-Q-002 | Wave 6 recovery | Exact configuration image restored after CR1.SWRST and the failure state if restoration cannot complete | Frozen recovery transaction, injected-failure trace, and target START-failure test | Driver/Codec review before Wave 6 | `DEFERRED` to Wave 6 |
 | I2C-Q-003 | Wave 8 hardware closure | Which board, targets, pull-ups, and fault-injection setup supply retained electrical evidence | Named fixture, measured SCL rates, ACK/NACK cases, IRQ-load receive stress, and safe stuck-bus test | Hardware integration owner before final verification | `DEFERRED` to Wave 8 |
+
+The I2C-Q-001 implementation proof adopts the decided constraint that the
+masked windows cover only the RM0008 method-2 and ES096 register sequences and
+never a bounded wait: every fallible Codec staging call completes while
+delivery is still enabled, and the window body performs only MMIO reads,
+writes, and the prior-`PRIMASK` restoration. The Wave 5 exit evidence still
+owes the fake-MMIO ordering trace from both initially enabled and initially
+masked states.
 
 ## Instance Capability Table
 
@@ -348,7 +356,7 @@ driver_status_t I2C_MasterTransmit
 	I2C_TypeDef* const           I2Cx,
 	const i2c_address_t          address,
 	const i2c_data_t* const      pData,
-	const i2c_transfer_size_t    size,
+	const i2c_data_length_t    size,
 	const uint32_t               timeout_ms
 );
 
@@ -357,7 +365,7 @@ driver_status_t I2C_MasterReceive
 	I2C_TypeDef* const           I2Cx,
 	const i2c_address_t          address,
 	i2c_data_t* const            pData,
-	const i2c_transfer_size_t    size,
+	const i2c_data_length_t    size,
 	const uint32_t               timeout_ms
 );
 
@@ -366,9 +374,9 @@ driver_status_t I2C_MasterWriteRead
 	I2C_TypeDef* const           I2Cx,
 	const i2c_address_t          address,
 	const i2c_data_t* const      pWriteData,
-	const i2c_transfer_size_t    writeSize,
+	const i2c_data_length_t    writeSize,
 	i2c_data_t* const            pReadData,
-	const i2c_transfer_size_t    readSize,
+	const i2c_data_length_t    readSize,
 	const uint32_t               timeout_ms
 );
 ```
@@ -881,8 +889,8 @@ Boolean status, polls without bounds, and has no failure-atomic dequeue rule.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | I2C-DRV-001 | Driver | `i2c.c` `I2C_Init` | Full validate/snapshot/stage/commit transaction; no implicit-return or unused-input path remains | Declared `driver_status_t` implementation | Build failure | Rewritten in the root-configuration wave | `RESOLVED` |
 | I2C-DRV-002 | Driver | `i2c.h`/`i2c.c` | No active public transfer API or usable configuration | Frozen lifecycle and transfer surface | No generic capability | Waves 3-6 | `PLANNED` |
-| I2C-DRV-003 | Driver | legacy loops | Every wait is unbounded and ignores errors | Transaction-wide poll budget and error-first waits | Permanent hang | Waves 4-6 | `PLANNED` |
-| I2C-DRV-004 | Driver | legacy read path | Read address written twice; one/two/multi-byte tails incorrect; no POS handling | RM0008 Figures 274-277 and ES096 sequences | Corrupt/missing data | Wave 5 | `PLANNED` |
+| I2C-DRV-003 | Driver | legacy loops | Every wait is unbounded and ignores errors | Transaction-wide poll budget and error-first waits | Permanent hang | Waves 4-6 | `IMPLEMENTED`: unified bounded `_I2C_WaitForEvent` engine shared by the transmit and receive transactions |
+| I2C-DRV-004 | Driver | legacy read path | Read address written twice; one/two/multi-byte tails incorrect; no POS handling | RM0008 Figures 274-277 and ES096 sequences | Corrupt/missing data | Wave 5 | `IMPLEMENTED` in `I2C_MasterReceive`: N=1 `EV6_3`, N=2 `EV6_1`+`EV7_3`, N>2 `EV7_2`; retained tail/hardware traces remain Wave 5 exit evidence |
 | I2C-DRV-005 | Driver | legacy transmit tests | `(TXE | BTF)` mask is treated as any-bit rather than both-bit EV8_2 | Explicit required-bit equality | Premature STOP/data loss | Wave 4 | `PLANNED` |
 | I2C-DRV-006 | Driver | `I2C_D2L_GetInstance` | Unvalidated public LUT index | Pointer identity plus validated switch topology | Out-of-bounds read | Wave 1 | `PLANNED` |
 | I2C-DRV-007 | Driver | legacy helpers | Void/raw-byte/Boolean returns collapse errors and progress | `driver_status_t` plus typed result | Undiagnosable failure | Waves 1,4-6 | `PLANNED` |
@@ -920,7 +928,7 @@ evidence.
 | I2C-DEC-006 | Clock/pin ownership | Hidden Driver mutation / external | RCC gate and GPIO/AFIO stay application-owned | Those resources are shared and board-dependent. | I2C validates the clock and never selects pins/remap. | `VERIFIED` |
 | I2C-DEC-007 | Result reporting | Generic status only / raw SR1 / typed result | `driver_status_t` plus semantic result/progress | Common status propagation and protocol diagnosis are both required. | Callers receive exact cause and completed-byte counts without depending on raw flags. | `VERIFIED` |
 | I2C-DEC-008 | 100 kHz repeated START | Assume board conditions / reject / remove 100 kHz | Keep 100 kHz ordinary transfers; reject generic combined operation above 88 kHz Standard mode | The ES096 physical preconditions cannot be observed by the generic Driver. | Portable repeated START uses <=88 kHz Standard or Fast mode. | `VERIFIED` |
-| I2C-DEC-009 | Receive critical timing | Hope polling is fast / mask interrupts / own GPIO | Save/mask/restore interrupts only across minimal RM/ES096 windows | It closes the known preemption window without seizing pin routing. | Wave 5 must prove exact ordering and prior-mask restoration. | `PLANNED` implementation proof |
+| I2C-DEC-009 | Receive critical timing | Hope polling is fast / mask interrupts / own GPIO | Save/mask/restore interrupts only across minimal RM/ES096 windows | It closes the known preemption window without seizing pin routing. | Wave 5 must prove exact ordering and prior-mask restoration. | `IMPLEMENTED` implementation proof: `_I2C_EnterCritical`/`_I2C_ExitCritical` save prior `PRIMASK`, mask delivery, and restore the observed prior state around exactly the `EV6_3`/`EV6_1`+`EV7_3`/`EV7_2` register windows; all fallible staging completes before each window |
 | I2C-DEC-010 | DMA | Keep placeholders / implement now / defer | Defer and remove placeholders | No named peer/consumer contract exists. | DMA can return only through a newly admitted wave. | `VERIFIED` |
 | I2C-DEC-011 | Ring buffer | Peripheral submodule / generic queue above I2C | Remove from I2C | Buffer policy is not peripheral protocol. | A higher layer may queue whole public transactions. | `VERIFIED` |
 | I2C-DEC-012 | Stuck BUSY recovery | Driver toggles pins / reset only / split authority | Driver reset/report; BSP/application pin recovery | Route knowledge is external and ES096 reset alone may fail. | The result distinguishes stuck BUSY and recovery failure. | `VERIFIED` |
@@ -935,7 +943,7 @@ evidence.
 | `I2C_GetOperationState` | Validate instance/RCC; one CR1 snapshot | Extract PE | read CR1 | PE | OFF/ON/error | valid/error fake register | `CONTRACT-FROZEN` |
 | `I2C_SetOperationState` | Validate state/config/BUSY; one CR1 image; stage/write | Stage PE | read/write CR1 | PE, BUSY, START/STOP | success/error | preservation/action checks | `CONTRACT-FROZEN` |
 | `I2C_MasterTransmit` | Full preflight; one CR1 snapshot; BUSY; latched-error refusal; shared budget; START/address; TX loop; EV8_2; STOP; bus idle; single cleanup | Address byte, errors, CR1 actions, W0C ack | CR1, DR, SR1, SR2 | SB, ADDR, TXE, BTF; AF/BERR/ARLO/OVR/TIMEOUT | success/null/invalid/state/busy/fail/timeout; primary failure only | full event traces and injected failures | `IMPLEMENTED` |
-| `I2C_MasterReceive` | Preflight; START/address; select N=1/2/>2 tail; critical sections; STOP; restore | Address, ACK/POS/action/error images | CR1, DR, SR1, SR2 | SB, ADDR, RXNE, BTF and all errors | exact result/partial RX | tail traces, interrupt-window harness, errata cases | `CONTRACT-FROZEN` |
+| `I2C_MasterReceive` | Shared `_I2C_ValidateTransferPreconditions` preflight; N=2 `ACK=1`/`POS=1` preflight before START; START/address; `_I2C_WaitForAddressLatch` for N=1; `_I2C_WaitForEvent` for N>1; length-tail dispatch; prior-`PRIMASK` windows; `BUS_IDLE` close; `_I2C_RestoreBaseline`; single cleanup | Address byte, ACK/POS staging, action staging, errors, `RXNE`/`BTF` event decode | read/write CR1, DR, SR1, SR2 | SB, ADDR, RXNE, BTF; AF/BERR/ARLO/OVR/TIMEOUT | success/null/invalid/state/busy/not-ready/fail/timeout/no-ack/arbitration/overrun/line-fault; primary failure only | tail traces, interrupt-window harness, errata cases | `IMPLEMENTED` |
 | `I2C_MasterWriteRead` | TX without STOP; final BTF; repeated START; selected RX tail | Same reusable transforms | Same named LL paths | both phase events/errors | separate TX/RX progress | repeated-START traces at 88/100/400 kHz policies | `CONTRACT-FROZEN` |
 
 No standalone Codec API is justified for a raw flag whose interpretation is
@@ -1000,7 +1008,7 @@ are frozen above; implementation may build the demanded foundation bottom-up.
 | 2 | Pure Codec | CODEC-001/002 | Implement timing, baseline, operation, address, error extraction/W0C, action staging and pure tests | Wave 1 types/register contracts frozen | all selector/boundary/preservation/publication tests pass | `PLANNED` |
 | 3 | Lifecycle/configuration | DRV-001/002/010, CMAKE-001 | Implement topology, RCC validation/reset, DeConfig/Config/operation pair; no transfer yet | Waves 1-2 pass | warning-clean build; no-write-on-error and MMIO order traces pass | `PLANNED` |
 | 4 | Bounded transmit | DRV-003/005/007/008 | Implement common poll/error engine, START/address, transmit, STOP, cleanup | Wave 3 configured-state contract passes | all EV/error/timeout traces pass | `IMPLEMENTED`; byte-progress publication dropped with `i2c_transfer_result_t` |
-| 5 | Receive and repeated START | DRV-004, ERR-001 | Implement N=1/N=2/N>2, critical windows, combined transfer, ES096 speed gate | Wave 4 stable; interrupt-mask primitive reviewed | tail/repeated-START/errata trace and target stress evidence pass | `PLANNED` |
+| 5 | Receive and repeated START | DRV-004, ERR-001 | Implement N=1/N=2/N>2, critical windows, combined transfer, ES096 speed gate | Wave 4 stable; interrupt-mask primitive reviewed | tail/repeated-START/errata trace and target stress evidence pass | `IN PROGRESS`: receive path and `I2C_EVENT_FLAG_DATA_REGISTER_FULL` selector are implemented (`I2C_MasterReceive`); repeated START in `I2C_MasterWriteRead` remains `PLANNED` |
 | 6 | Recovery closure | DRV-003/007, ERR-001 | Complete SWRST/config restore, stuck-BUSY result, all error injection and partial-progress contracts | Waves 4-5 pass | every post-START failure reaches one proven cleanup state | `PLANNED` |
 | 7 | Legacy cleanup/documentation | RB-001, DMA placeholder, IRQ placeholder, DOC findings | Remove dead legacy/placeholder files or content; full Doxygen pass; keep SSD1306 untouched | Accepted API consumers within scope build | zero unclassified I2C symbols; docs/style/build clean | `PLANNED` |
 | 8 | Independent final audit | all nondeferred | Adversarial Driver->Codec->LL, errata, usability, and hardware review | Waves 1-7 evidence complete | every nondeferred completion gate verified | `PLANNED` |

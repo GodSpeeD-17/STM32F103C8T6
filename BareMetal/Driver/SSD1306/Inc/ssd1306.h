@@ -1,289 +1,100 @@
 /**
  * @file ssd1306.h
  * @author Shrey Shah
- * @brief SSD1306 Specific Header File
- * @version 1.0
- * @date 16-08-2025
+ * @brief SSD1306 OLED driver stack aggregate header
+ * @version v1.0
+ * @date 09-11-2026
+ * @details
+ * @section SSD1306_H_HIERARCHY Hierarchy
+ * - Position: SSD1306 Driver stack aggregate (top-level convenience) header
+ * - Included by: Application and higher layers that want the complete SSD1306
+ *   vocabulary in one include
+ * - Uses: ssd1306_data_types.h, ssd1306_defines.h, and ssd1306_reg_map.h
+ *
+ * @section SSD1306_H_RESPONSIBILITY Responsibility
+ * This header aggregates the canonical SSD1306 headers so one include exposes
+ * the scalar type registry, the project configuration constants, and the
+ * command register map. It declares nothing of its own.
+ *
+ * @section SSD1306_H_DEPENDENCIES Dependencies
+ * This header includes the three canonical SSD1306 headers only. Each of them
+ * is individually self-contained, so consumers may include them directly to
+ * keep their dependency surface minimal.
+ *
+ * @section SSD1306_H_BOUNDARY Dependency Boundary
+ * This header adds no vocabulary and binds no bus instance, board pin, or
+ * framebuffer; it is a pure include composition surface.
  */
-/* ------------------------------------------------------------------------------------ */
+
 // Header Guards
-#ifndef __SSD1306_H__
-#define __SSD1306_H__
-/* ------------------------------------------------------------------------------------ */
-#include "ssd1306_config.h"
-#include "ssd1306_font.h"
-#include "ssd1306_i2c.h"
-#include "ssd1306_disp.h"
-/* ------------------------------------------------------------------------------------ */
+#ifndef SSD1306_H_
+#define SSD1306_H_
 
-#ifdef __OLD__
+// ==================================================================================================== //
 // Includes
+// ==================================================================================================== //
 #include "stm32f1xx.h"
-#include "i2c.h"
-#include "ssd1306_config.h"
-#include "ssd1306_font.h"
-/* ------------------------------------------------------------------------------------ */
-/**
- * @brief Single SSD1306 Command
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] Command Command
- */
-#define SSD1306_sendCMD(I2Cx, Command)							(SSD1306_writeByte((I2Cx), 1, (Command)))
+#include "ssd1306_defines.h"
+
+// --- C++ Compatibility ---
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
 
 /**
- * @brief SSD1306 Multiple Command
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] CMDArray Pointer to Command Array
- * @param[in] ArrayLen Length of the Command Array
+ * @brief The configuration structure which holds the SSD1306 OLED display state and configuration
+ * @details
+ * This structure holds the state and configuration of the SSD1306 OLED display.
+ * It contains the frame buffer, the I2C peripheral instance, and the pixel coordinates.
+ * This structure will be input to all the peripheral functions to perform the required operations on the SSD1306 OLED display.
+ * @struct ssd1306_t
  */
-#define SSD1306_sendCMDArray(I2Cx, CMDArray, ArrayLen)			(SSD1306_writeBytes((I2Cx), 1, (CMDArray), (ArrayLen)))
+typedef struct _ssd1306_t
+{
+	/**
+	 * @brief Frame Buffer for SSD1306 OLED Display
+	 * @details
+	 * The SSD1306 GDDRAM is a linear array of bytes, each of which encodes eight vertical pixels in one display column.
+	 * Each byte is addressed by its page and column coordinates
+	 * @memberof ssd1306_t
+	 */
+	ssd1306_data_t frameBuffer[SSD1306_PAGE_COUNT][SSD1306_COLUMN_COUNT];
 
-/**
- * @brief Single SSD1306 Data
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] Data Data
- */
-#define SSD1306_sendData(I2Cx, Data)							(SSD1306_writeByte((I2Cx), 0, (Data)))
+	/**
+	 * @brief Pointer to already initialized I2C Peripheral Instance 
+	 * @memberof ssd1306_t
+	 * @note - The I2C peripheral must be initialized before passing its pointer to the SSD1306 driver.
+	 * @note - The driver will use this pointer to communicate with the SSD1306 OLED display over
+	 */
+	I2C_TypeDef* const pI2C;
 
-/**
- * @brief SSD1306 Multiple Data
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] DataArray Pointer to Data Array
- * @param[in] ArrayLen Length of the Data Array
- */
-#define SSD1306_sendDataArray(I2Cx, DataArray, ArrayLen)		(SSD1306_writeBytes((I2Cx), 0, (DataArray), (ArrayLen)))
+	/**
+	 * @brief The pixel coordinates of the SSD1306 OLED Display
+	 * @memberof ssd1306_t
+	 */
+	struct _ssd1306_pixel_t
+	{
+		/**
+		 * @brief Pixel X-coordinate in the SSD1306 OLED Display
+		 * @memberof pixel
+		 * @note Valid X-coordinates span `SSD1306_WIDTH_MIN` to `SSD1306_WIDTH_MAX` after project geometry is applied by ssd1306_config.h
+		 */
+		ssd1306_row_t X;
+		/**
+		 * @brief Pixel Y-coordinate in the SSD1306 OLED Display
+		 * @memberof pixel
+		 * @note Valid Y-coordinates span `SSD1306_HEIGHT_MIN` to `SSD1306_HEIGHT_MAX` after project geometry is applied by ssd1306_config.h
+		 */
+		ssd1306_column_t Y;
+	} pixel;
 
-/**
- * @brief Clears the Screen (Black)
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2` 
- */
-#define SSD1306_clrScr(I2Cx)									(SSD1306_fillDisp((I2Cx), 0x00))
-/* ------------------------------------------------------------------------------------ */
+} ssd1306_t;
 
-/* ------------------------------------------------------------------------------------ */
-/**
- * @brief Occupies the I2C Bus
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- */
-__STATIC_FORCEINLINE void SSD1306_I2C_Start(I2C_TypeDef* I2Cx){
-	// Local Variable
-	uint32_t temp = 0x00;
-	// Wait till bus is ready
-	while(!(I2C_busReady(I2Cx)));
-	// Start Sequence
-	I2C_sendStart(I2Cx);
-	// Wait for Start condition (EV5)
-	while (!(I2Cx->SR1.REG & I2C_SR1_SB));
-	// Send Slave Address with Write Privilege
-	I2C_writeAddress(I2Cx, SSD1306_I2C_ADDRESS);
-	// Wait for ADDR flag (EV6)
-	while (!(I2Cx->SR1.REG & I2C_SR1_ADDR));
-	temp = I2Cx->SR1.REG; // Clear ADDR flag by reading SR1
-	temp = I2Cx->SR2.REG; // Clear ADDR flag by reading SR2
-	// Wait for TXE flag (EV8_1)
-	while (!(I2Cx->SR1.REG & I2C_SR1_TXE));
+
+
+// --- C++ Compatibility ---
+#ifdef __cplusplus
 }
+#endif /* __cplusplus */
 
-/**
- * @brief Common Implementation for Byte Transfer
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] isCMD 0: Data, 1: Command, else: data
- * @param[in] data Data to be sent
- */
-__STATIC_FORCEINLINE void SSD1306_writeByte(I2C_TypeDef* I2Cx, uint8_t isCMD, uint8_t data){
-	
-	if(isCMD == 1){
-		// Command transmission
-		I2C_writeByte(I2Cx, SSD1306_CMD_INDICATOR);
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	}
-	else if (isCMD == 0){
-		// Data transmission
-		I2C_writeByte(I2Cx, SSD1306_DATA_INDICATOR);	
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	}
-
-	// Data Transfer
-	I2C_writeByte(I2Cx, data);	
-	// Wait for TXE and BTF flags (EV8_2)
-	while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-}
-
-/**
- * @brief Common Implementation for Bytes Transfer
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] isCMD - 0: Data
- * 					- 1: Command
- * 					- else: array
- * @param[in] array Pointer to array to be sent 
- * @param[in] arrayLength Length of array to be sent 
- */
-__STATIC_FORCEINLINE void SSD1306_writeBytes(I2C_TypeDef* I2Cx, uint8_t isCMD, uint8_t* array, uint16_t arrayLength){
-	
-	if(isCMD == 1){
-		// Command transmission
-		I2C_writeByte(I2Cx, SSD1306_CMD_INDICATOR);
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	}
-	else if (isCMD == 0){
-		// Data transmission
-		I2C_writeByte(I2Cx, SSD1306_DATA_INDICATOR);	
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	}
-
-	// Transmit the whole Array
-	for(uint16_t i = 0; i < arrayLength; i++){
-		// Transmit the Byte
-		I2C_writeByte(I2Cx, array[i]);
-		// Wait for TXE and BTF flags (EV8_2)
-		while(!(I2Cx->SR1.REG & (I2C_SR1_TXE | I2C_SR1_BTF)));
-	}
-}
-
-/**
- * @brief Frees the I2C Bus
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- */
-__STATIC_FORCEINLINE void SSD1306_I2C_End(I2C_TypeDef* I2Cx){
-	// Generate STOP condition
-	I2C_sendStop(I2Cx);
-	// Wait until STOP condition is generated
-	while (!(I2C_busReady(I2Cx)));
-}
-
-/**
- * @brief Initializes the SSD1306 display
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- */
-__STATIC_FORCEINLINE void SSD1306_Init(I2C_TypeDef* I2Cx){
-	// Internal Array
-	SSD1306_I2C_cmdArray(I2Cx, SSD1306_initCmd, (sizeof(SSD1306_initCmd)/sizeof(SSD1306_initCmd[0])));
-}
-
-/**
- * @brief Transmits the custom commands to SSD1306
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] cmd SSD1306 Command
- * @note Takes care of complete I2C Sequence as well 
- */
-void SSD1306_I2C_CMD(I2C_TypeDef* I2Cx, uint8_t cmd);
-
-/**
- * @brief Transmits the custom commands to SSD1306
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] cmdArray Pointer to array storing the SSD1306 Commands
- * @param[in] cmdArrayLen Length of the array storing the SSD1306 Commands
- * @note Takes care of complete I2C Sequence as well 
- */
-void SSD1306_I2C_cmdArray(I2C_TypeDef* I2Cx, uint8_t* cmdArray, uint16_t cmdArrayLen);
-
-/**
- * @brief Transmits the custom commands to SSD1306
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] data SSD1306 Command
- * @note Takes care of complete I2C Sequence as well 
- */
-void SSD1306_I2C_Data(I2C_TypeDef* I2Cx, uint8_t data);
-
-/**
- * @brief Transmits the data to SSD1306
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] dataArray Pointer to array storing the Data
- * @param[in] dataArrayLen Length of the array storing the Data
- * @note Takes care of complete I2C Sequence as well 
- */
-void SSD1306_I2C_dataArray(I2C_TypeDef* I2Cx, uint8_t* dataArray, uint16_t dataArrayLen);
-
-/**
- * @brief Sets the Column Range
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] start Starting Column
- * @param[in] end Ending Column
- * @note Only valid for Horizontal & Vertical Addressing Mode
- */
-void SSD1306_setColumnRange(I2C_TypeDef* I2Cx, uint8_t start, uint8_t end);
-
-/**
- * @brief Sets the Page Range
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] start Starting Page
- * @param[in] end Ending Page
- * @note Only valid for Horizontal & Vertical Addressing Mode
- */
-void SSD1306_setPageRange(I2C_TypeDef* I2Cx, uint8_t start, uint8_t end);
-
-/**
- * @brief Retrieves the current X-Coordinate
- * @returns Current X-Coordinate
- */
-uint8_t SSD1306_DMA_Get_Cursor_X(void);
-
-/**
- * @brief Retrieves the current Y-Coordinate
- * @returns Current Y-Coordinate
- */
-uint8_t SSD1306_DMA_Get_Cursor_Y(void);
-
-/**
- * @brief Directs to the Pixel Pointer
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] X X-Coordinate (Along the Columns)
- * @param[in] Y Y-Coordinate (Along the Page)
- * @note Only valid for Page Addressing Mode
- */
-void SSD1306_gotoXY(I2C_TypeDef* I2Cx, uint8_t X, uint8_t Y);
-
-/**
- * @brief Fills the whole Display with input color
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] color 0x00: Black; 0xFF: White
- */
-void SSD1306_fillDisp(I2C_TypeDef* I2Cx, uint8_t color);
-
-/**
- * @brief Fills the rectangle
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] X1 Top left X-coordinate
- * @param[in] Y1 Top left Y-coordinate
- * @param[in] X2 Bottom right X-coordinate
- * @param[in] Y2 Bottom right Y-coordinate
- */
-void SSD1306_fillRect(I2C_TypeDef* I2Cx, uint8_t X1, uint8_t Y1, uint8_t X2, uint8_t Y2);
-
-/**
- * @brief Displays a single character
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] c Character to display
- */
-void SSD1306_I2C_dispChar(I2C_TypeDef* I2Cx, char c);
-
-/**
- * @brief Displays a string
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] str String to display
- * @param[in] strLength Length of String
- */
-void SSD1306_I2C_dispString(I2C_TypeDef* I2Cx, const char* str);
-
-/**
- * @brief Displays input image on the screen
- * @param[in] I2Cx I2C Instance: `I2C1`, `I2C2`
- * @param[in] dataArray The array of data
- * @note The data size should be of 1024 bytes
- */
-void SSD1306_I2C_dispFullScreen(I2C_TypeDef* I2Cx, const uint8_t* dataArray);
-
-/**
- * @brief Write the data to the SSD1306 display
- * @param ssd1306 Pointer to the SSD1306 configuration structure
- * @param data Pointer to the data buffer
- * @param size Size of the data buffer
- */
-void SSD1306_I2C_Write(ssd1306_config_t* ssd1306, uint8_t* data, uint16_t size);
-#endif /* __OLD__ */
-
-#endif /* __SSD1306_H__ */ 
+#endif /* SSD1306_H_ */
