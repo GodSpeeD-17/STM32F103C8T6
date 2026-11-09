@@ -9,9 +9,9 @@ function(stm32_configure_output_paths)
     if(EXISTS ${VSCODE_DIR})
         set(vscode_dir_status "existing")
     else()
-        # Editor metadata is created only when its explicit utility target runs,
-        # so ordinary firmware configuration never mutates the source tree.
-        set(vscode_dir_status "deferred")
+        # stm32_add_vscode_targets() materializes .vscode later in the same
+        # configure pass, so no editor metadata step is left to manual setup.
+        set(vscode_dir_status "materialized by configure")
     endif()
 
     set(BINARY_FILE ${BUILD_OUTPUT_DIR}/${PROJECT_NAME}.bin)

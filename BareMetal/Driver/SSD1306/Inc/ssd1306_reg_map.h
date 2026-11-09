@@ -81,7 +81,7 @@ extern "C" {
  * Accepted values:
  * - `0x3CU`: 7-bit address `0111100b`
  */
-#define SSD1306_I2C_ADDR_SA0_LOW								((ssd1306_addr_t) 0x3CU)
+#define SSD1306_I2C_ADDR_SA0_LOW								((i2c_address_t) 0x3CU)
 
 /**
  * @brief SSD1306 7-bit I2C slave address when SA0/D/C# is driven high
@@ -89,7 +89,7 @@ extern "C" {
  * Accepted values:
  * - `0x3DU`: 7-bit address `0111101b`
  */
-#define SSD1306_I2C_ADDR_SA0_HIGH								((ssd1306_addr_t) 0x3DU)
+#define SSD1306_I2C_ADDR_SA0_HIGH								((i2c_address_t) 0x3DU)
 
 // ==================================================================================================== //
 // Fundamental Command Register Map

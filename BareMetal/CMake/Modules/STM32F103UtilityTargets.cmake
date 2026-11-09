@@ -28,8 +28,20 @@ function(stm32_add_vscode_targets)
         @ONLY
     )
 
-    # Copy debugger metadata only when explicitly requested, keeping ordinary
-    # firmware configuration free from source-tree editor side effects.
+    # The source-tree .vscode folder is materialized at configure time so a
+    # fresh project is immediately debuggable: VS Code reads only .vscode/ at
+    # the workspace root, never the Build/VSCode staging folder.
+    file(MAKE_DIRECTORY "${VSCODE_DIR}")
+    file(COPY
+        "${VSCODE_GENERATED_DIR}/launch.json"
+        "${VSCODE_GENERATED_DIR}/settings.json"
+        "${VSCODE_GENERATED_DIR}/tasks.json"
+        "${VSCODE_GENERATED_DIR}/c_cpp_properties.json"
+        DESTINATION "${VSCODE_DIR}"
+    )
+
+    # Copy debugger metadata refreshes every reconfigure, keeping ambiguous
+    # manual sync steps out of the editor workflow.
     add_custom_target(vscode_launch
         COMMAND ${CMAKE_COMMAND} -E make_directory "${VSCODE_DIR}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

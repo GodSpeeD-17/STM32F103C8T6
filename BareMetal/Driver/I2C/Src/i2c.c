@@ -121,6 +121,51 @@ __STATIC reg _I2C_GetAPB1PeripheralResetMask(const I2C_TypeDef* const I2Cx)
 // ==================================================================================================== //
 
 /**
+ * @brief Validates that the application-owned APB1 clock gate for an I2C peripheral is enabled
+ * @details
+ * Common preflight shared by every I2C public API, so each transaction proves
+ * the gate is on before it can read or write any powered-down register bank.
+ * A powered-down peripheral returns undefined data, and a read behind a
+ * disabled gate could fake either a free bus or an enabled controller, so
+ * this check must always precede the first register access.
+ * @param[in] I2Cx I2C peripheral instance
+ * Expected Values:
+ * - @ref `I2C1`
+ * - @ref `I2C2`
+ * @returns @ref driver_status_t "I2C clock-gate validation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: The matching APB1 clock gate is enabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The matching gate mask is unresolved for an otherwise valid instance
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The application-owned APB1 clock gate is disabled
+ * @note Does not validate this input because it is a static function; every
+ * public caller has already rejected a `NULL` or unsupported instance
+ * @note Observes the RCC gate through the clock-state service and never
+ * mutates it, per the repository's application-owned-network-clock rule
+ */
+__STATIC_FORCEINLINE driver_status_t _I2C_ValidateClockEnabled(const I2C_TypeDef* const I2Cx)
+{
+	// Local Variable
+	reg clockEnableMask = 0x00000000UL;
+
+	//! Decode the gate mask first: a zero mask describes unknown topology for an
+	//! otherwise valid instance, not a missing application clock-enable step.
+	clockEnableMask = _I2C_GetAPB1ClockEnableMask(I2Cx);
+	if (clockEnableMask == 0x00000000UL)
+	{
+		return DRIVER_STATUS_ERROR_STATE;
+	}
+
+	//! Observe the application-owned gate instead of enabling it: a disabled gate
+	//! is a missing application bring-up step, not a wrong live state, so it is
+	//! reported with the dedicated CLOCK_NOT_ENABLED status.
+	if (RCC_GetPeripheralClockState(RCC_APB1_BUS, clockEnableMask) != DRIVER_STATUS_ON)
+	{
+		return DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED;
+	}
+
+	return DRIVER_STATUS_SUCCESS;
+}
+
+/**
  * @brief Spends one poll-iteration dwell before sampling status registers
  * @details
  * A bounded volatile busy-spin that cannot be optimized away at any `-O`
@@ -353,12 +398,7 @@ __STATIC driver_status_t _I2C_WaitForEvent
 		pollBudget--;
 
 		//! Decode hardware error flags before checking the requested event.
-		sampleStatus = Codec_I2C_ExtractError
-		(
-			sr1RegImage,
-			&sampledError
-		);
-
+		sampleStatus = Codec_I2C_ExtractError(sr1RegImage, &sampledError);
 		if (sampleStatus != DRIVER_STATUS_SUCCESS)
 		{
 			if (pError != NULL)
@@ -850,7 +890,7 @@ __STATIC driver_status_t _I2C_AcknowledgeErrors
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The matching gate mask is unresolved, the bus is busy-checkable only
  *   through a valid image, the peripheral is disabled, a START/STOP action is pending, or a stale `SR1` error flag is latched
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The application-owned APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The application-owned APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy
  * @pre The application owns the instance exclusively through the whole call
  * @note This helper observes the RCC gate through the clock-state service and
@@ -866,7 +906,6 @@ __STATIC driver_status_t _I2C_ValidateTransferPreconditions
 )
 {
 	// Local Variables
-	reg clockEnableMask = 0x00000000UL;
 	reg cr1RegImage = 0x00000000UL;
 	reg sr1Snapshot = 0x00000000UL;
 	i2c_error_t latchedError = I2C_ERROR_NONE;
@@ -891,20 +930,10 @@ __STATIC driver_status_t _I2C_ValidateTransferPreconditions
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
-	//! The APB1 gate is application-owned, so observe it instead of enabling it. The
-	//! gate must be proven on before the first register read, because a powered-down
-	//! peripheral returns undefined data that could fake an enabled, idle controller.
-	clockEnableMask = _I2C_GetAPB1ClockEnableMask(I2Cx);
-	if (clockEnableMask == 0x00000000UL)
-	{
-		return DRIVER_STATUS_ERROR_STATE;
-	}
-	if (RCC_GetPeripheralClockState(RCC_APB1_BUS, clockEnableMask) != DRIVER_STATUS_ON)
-	{
-		//! A disabled gate is a missing application bring-up step, not a wrong live
-		//! state, so it is reported with the dedicated NOT_READY status.
-		return DRIVER_STATUS_ERROR_NOT_READY;
-	}
+	//! The gate must be proven on before the first register read, because a
+	//! powered-down peripheral returns undefined data that could fake an enabled,
+	//! idle controller.
+	ASSERT_DRIVER_STATUS(_I2C_ValidateClockEnabled(I2Cx));
 
 	//! Snapshot CR1 once and answer both lifecycle preconditions from that single
 	//! image, so the enabled and action-idle tests describe one hardware moment.
@@ -953,7 +982,6 @@ __STATIC driver_status_t _I2C_ValidateTransferPreconditions
 driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pConfig)
 {
 	// Local Variables
-	reg clockEnableMask = 0x00000000UL;
 	//! Each register image is a two-slot array: slot 0 keeps the pre-transaction
 	//! hardware snapshot for comparison, slot 1 is the only image the Codec stages
 	//! mutate, so a staged result can never overwrite the value it is diffed against.
@@ -973,19 +1001,9 @@ driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pCon
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
-	//! The APB1 gate is application-owned, so observe it instead of enabling it: a
-	//! successful return must never hide a missing application clock-enable step.
-	clockEnableMask = _I2C_GetAPB1ClockEnableMask(I2Cx);
-	if (clockEnableMask == 0x00000000UL)
-	{
-		return DRIVER_STATUS_ERROR_STATE;
-	}
-	if (RCC_GetPeripheralClockState(RCC_APB1_BUS, clockEnableMask) != DRIVER_STATUS_ON)
-	{
-		//! A disabled gate is a missing application bring-up step, not a wrong live
-		//! state, so it is reported with the dedicated NOT_READY status.
-		return DRIVER_STATUS_ERROR_NOT_READY;
-	}
+	//! The gate must be proven on before the first snapshot, because a powered-down
+	//! peripheral returns undefined data that could fake a disabled, idle controller.
+	ASSERT_DRIVER_STATUS(_I2C_ValidateClockEnabled(I2Cx));
 
 	//! Snapshot CR1 once so the disable and pending-action checks below describe a
 	//! single coherent hardware moment instead of two unrelated reads.
@@ -1077,7 +1095,6 @@ driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pCon
 driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx)
 {
 	// Local Variables
-	reg clockEnableMask = 0x00000000UL;
 	reg resetMask = 0x00000000UL;
 
 	//! Reject an unrepresentable instance before the first hardware or peer access.
@@ -1090,22 +1107,11 @@ driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx)
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
-	//! The APB1 gate is application-owned, so observe it instead of enabling it.
-	//! Pulsing a reset behind a disabled gate would leave the register bank
-	//! unreadable and would hide the missing application clock-enable step. The gate
-	//! must also be proven on before SR2 is read, because a powered-down peripheral
-	//! returns undefined data that could fake either a free or a busy bus.
-	clockEnableMask = _I2C_GetAPB1ClockEnableMask(I2Cx);
-	if (clockEnableMask == 0x00000000UL)
-	{
-		return DRIVER_STATUS_ERROR_STATE;
-	}
-	if (RCC_GetPeripheralClockState(RCC_APB1_BUS, clockEnableMask) != DRIVER_STATUS_ON)
-	{
-		//! A disabled gate is a missing application bring-up step, not a wrong live
-		//! state, so it is reported with the dedicated NOT_READY status.
-		return DRIVER_STATUS_ERROR_NOT_READY;
-	}
+	//! The gate must be proven on before the SR2 sample below, because a
+	//! powered-down peripheral returns undefined data that could fake either a
+	//! free or a busy bus, and pulsing a reset behind a disabled gate would leave
+	//! the register bank unreadable.
+	ASSERT_DRIVER_STATUS(_I2C_ValidateClockEnabled(I2Cx));
 
 	//! A busy bus means another controller currently owns the lines, so resetting
 	//! the controller now would abandon a transfer mid-byte instead of releasing it.
@@ -1147,6 +1153,10 @@ driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx)
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
 
+	//! Check if the application-owned clock to the peripheral is enabled before
+	//! reading CR1, since a powered-down peripheral's PE state is undefined.
+	ASSERT_DRIVER_STATUS(_I2C_ValidateClockEnabled(I2Cx));
+
 	//! Extract the Operation State
 	return Codec_I2C_ExtractOperationState(LL_I2C_ReadCR1(I2Cx));
 
@@ -1171,6 +1181,10 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
 	{
 		return DRIVER_STATUS_ERROR_INVALID_ARG;
 	}
+
+	//! Check if the application-owned clock to the peripheral is enabled before
+	//! writing CR1, since staging PE onto a powered-down register bank is meaningless.
+	ASSERT_DRIVER_STATUS(_I2C_ValidateClockEnabled(I2Cx));
 
 	//! Extract the CR1 register value
 	cr1 = LL_I2C_ReadCR1(I2Cx);
@@ -1319,7 +1333,7 @@ driver_status_t I2C_MasterTransmit
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were received and STOP was generated and retired
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: I2C is not enabled, a START/STOP request is still pending, or a stale `SR1` error flag is latched
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired

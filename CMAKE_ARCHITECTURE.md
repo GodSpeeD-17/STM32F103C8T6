@@ -338,7 +338,7 @@ A normal out-of-source build uses this shape:
 │   ├── VSCode
 │   ├── CMakeCache.txt
 │   └── compile_commands.json
-└── .vscode                       Created only on explicit request
+└── .vscode                       Created automatically at configure time
 ```
 
 After linking, `objcopy` derives binary and Intel HEX images from the ELF. The
@@ -348,14 +348,17 @@ utilization summaries against 64 KiB Flash and 20 KiB RAM.
 
 ## VS Code and IntelliSense
 
-The configure step renders reviewed JSON templates into `Build/VSCode` but does
-not modify the project source tree. Run:
+The configure step renders reviewed JSON templates into `Build/VSCode` and
+copies them into the project's `.vscode` directory in the same pass, so every
+project is debuggable from VS Code (F5 → "Debug: <Project>") immediately after
+its first configure — no manual copy step. A fresh directory (e.g. after
+`clean_all`) is materialized again by the next reconfigure.
+
+The explicit build targets remain available for refresh-only workflows:
 
 ```bash
 cmake --build Build --target vscode_files
 ```
-
-to copy them into the project's `.vscode` directory.
 
 Both `settings.json` and `c_cpp_properties.json` point IntelliSense at
 `Build/compile_commands.json`. Editor analysis therefore receives the same

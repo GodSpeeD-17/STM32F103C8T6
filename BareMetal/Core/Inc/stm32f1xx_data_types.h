@@ -191,8 +191,8 @@ typedef enum _driver_status_t
 	DRIVER_STATUS_ON						=	3,
 	/** @brief Peripheral or driver is configured and ready for an operation. @enum DRIVER_STATUS_READY */
 	DRIVER_STATUS_READY						=	4,
-	/** @brief Required prerequisite resource is not yet established. @enum DRIVER_STATUS_ERROR_NOT_READY */
-	DRIVER_STATUS_ERROR_NOT_READY			=	5,
+	/** @brief The peripheral clock gate required by the operation is disabled. @enum DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED */
+	DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED	=	5,
 	/** @brief A requested action is accepted but not yet complete. @enum DRIVER_STATUS_IN_PROGRESS */
 	DRIVER_STATUS_IN_PROGRESS				=	6
 } driver_status_t;

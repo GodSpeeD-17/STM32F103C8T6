@@ -99,7 +99,8 @@ typedef uint8_t									ssd1306_row_t;
  * column typedefs.
  * @typedef ssd1306_data_t
  */
-typedef uint8_t									ssd1306_data_t;
+typedef i2c_data_t								ssd1306_data_t;
+
 
 // --- C++ Compatibility ---
 #ifdef __cplusplus

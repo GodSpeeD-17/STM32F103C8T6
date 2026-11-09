@@ -65,7 +65,7 @@ extern "C" {
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: Supported I2C timing configuration was applied
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pConfig` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported or a configuration selector was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The matching APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The matching APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: PCLK1 is unsupported, or I2C is not disabled and idle
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The I2C bus is busy
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
@@ -90,7 +90,7 @@ driver_status_t I2C_Init(I2C_TypeDef* const I2Cx, const i2c_config_t* const pCon
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: I2C register state was reset
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The matching APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The matching APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: The matching APB1 clock-gate mask is unresolved for the validated instance
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The I2C bus is busy
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
@@ -119,7 +119,11 @@ driver_status_t I2C_DeInit(I2C_TypeDef* const I2Cx);
  * @retval - @ref `DRIVER_STATUS_ON`: I2C peripheral operation is enabled
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The application-owned APB1 clock gate is disabled
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
+ * @note The operation state of a powered-down peripheral is unreadable, so a
+ * disabled clock gate is reported as an error instead of a plausible
+ * @ref `DRIVER_STATUS_OFF` result
  */
 driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx);
 
@@ -142,6 +146,7 @@ driver_status_t I2C_GetOperationState(I2C_TypeDef* const I2Cx);
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: I2C peripheral operation state was updated
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx` was unsupported or @p `operationState` was invalid
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The application-owned APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or a START/STOP action is pending
  * @pre The application enabled the matching APB1 clock gate through the RCC driver
  * @pre The application owns the complete I2C transaction
@@ -182,7 +187,7 @@ driver_status_t I2C_SetOperationState(I2C_TypeDef* const I2Cx, const driver_stat
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were transmitted and STOP was generated
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: I2C is not enabled, a START/STOP request is still pending, or a stale `SR1` error flag is latched
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
@@ -253,7 +258,7 @@ driver_status_t I2C_MasterTransmit
  * @retval - @ref `DRIVER_STATUS_SUCCESS`: All requested bytes were received and STOP was generated and retired
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `I2Cx` or @p `pData` was `NULL`
  * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `I2Cx`, @p `slaveAddress`, @p `size`, or @p `timeout_ms` was invalid
- * @retval - @ref `DRIVER_STATUS_ERROR_NOT_READY`: The APB1 clock gate is disabled
+ * @retval - @ref `DRIVER_STATUS_ERROR_CLOCK_NOT_ENABLED`: The APB1 clock gate is disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_STATE`: I2C is not enabled, a START/STOP request is still pending, or a stale `SR1` error flag is latched
  * @retval - @ref `DRIVER_STATUS_ERROR_BUSY`: The bus is busy or another owner holds the I2C instance
  * @retval - @ref `DRIVER_STATUS_ERROR_TIMEOUT`: The transaction-wide timeout expired
