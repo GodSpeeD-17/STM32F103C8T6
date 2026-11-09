@@ -163,7 +163,29 @@ extern "C" {
  * - `0x11U..0xFFU` by phase-field encoding: each phase uses `1..15` DCLKs;
  *   a phase field of `0` is invalid
  */
-#define SSD1306_CONFIG_PRECHARGE_PERIOD				((ssd1306_cmd_t) 0xF1U)
+#define SSD1306_CONFIG_PRECHARGE_PERIOD				((ssd1306_cmd_t) 0xFFU)
+
+/**
+ * @brief VCOMH deselect level selected for this project
+ * @def SSD1306_CONFIG_VCOMH_DESELECT
+ * @details
+ * The parameter byte handed to the two-byte
+ * @ref `SSD1306_CMD_SET_VCOMH_DESELECT_LEVEL` command by @ref SSD1306_Init.
+ * The VCOMH deselect level is a contrast-control input alongside the
+ * contrast step: it sets the common-row voltage while a row is deselected.
+ * A higher level also raises the voltage across every unlit pixel, so the
+ * off-state background glows faintly and blacks wash out toward gray; a
+ * lower level keeps unlit pixels dark but also reduces the common-row
+ * drive headroom that lit pixels render with. Encoded value `0x20` selects
+ * approximately 0.77 times VCC, the controller reset default: the balance
+ * point that keeps the background dark while preserving lit-pixel
+ * brightness.
+ * Accepted values:
+ * - `0x00U`: Approximately 0.65 times VCC (darkest background, dimmest lit pixels)
+ * - `0x20U`: Approximately 0.77 times VCC (controller reset default; balance point)
+ * - `0x30U`: Approximately 0.83 times VCC (brightest background, washed-out blacks)
+ */
+#define SSD1306_CONFIG_VCOMH_DESELECT				((ssd1306_cmd_t) 0x5FU)
 
 // ==================================================================================================== //
 // Pixel Color Definitions

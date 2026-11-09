@@ -16,9 +16,9 @@
  *
  * @section SSD1306_H_RESPONSIBILITY Responsibility
  * This header declares the SSD1306 display-state structure and the public
- * Driver functions that initialize the controller, mutate the local
- * framebuffer, and transmit command and framebuffer streams to the display
- * through an already-initialized I2C peripheral. It owns the complete
+ * Driver functions that initialize and deinitialize the controller, transmit
+ * command and data streams, mutate the local framebuffer, and refresh the
+ * panel through an already-initialized I2C peripheral. It owns the complete
  * display-state contract; voltage, GPIO, RCC, and I2C configuration remain
  * application-owned and are prerequisites, not responsibilities.
  *
@@ -126,34 +126,32 @@ typedef struct _ssd1306_t
 // Public API
 // ==================================================================================================== //
 
+// --- Controller Lifecycle ---
+
 /**
- * @brief Transmits one single-byte SSD1306 command over the bound I2C peripheral
+ * @brief Returns the SSD1306 controller to its power-safe standby configuration
  * @details
- * Frames the opcode behind the command control byte and issues one bounded
- * controller transmit. The display state is otherwise untouched.
+ * Transmits the teardown command stream: display off followed by charge-pump
+ * disable. This is the hardware-state conjugate of @ref SSD1306_Init; the
+ * local framebuffer is deliberately left untouched, so drawing content
+ * survives the panel-emission shutdown and @ref SSD1306_Init plus @ref
+ * SSD1306_Refresh can later restore it.
  *
  * @param[in] pSSD1306 Display state owning an initialized I2C peripheral
  * Expected values:
- * - Non-`NULL`: Command is transmitted through @p `pSSD1306`->`pI2C`
- * @param[in] command One canonical SSD1306 command or encoded command byte
- * Accepted values:
- * - Any `ssd1306_cmd_t` opcode or parameter-less encoded command from
- *   ssd1306_reg_map.h
- * @returns @ref driver_status_t "SSD1306 command-transmit operation status"
- * @retval - @ref `DRIVER_STATUS_SUCCESS`: Command byte was transmitted and the transaction closed with STOP
+ * - Non-`NULL` with a bound, initialized, enabled I2C peripheral instance
+ * @returns @ref driver_status_t "SSD1306 deinitialization operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Display was switched off and the charge pump was disabled
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pSSD1306` was `NULL`
  * @note The remaining failure statuses map one-to-one from
  * @ref I2C_MasterTransmit: timeout, no-ack, arbitration loss, overrun, line
  * fault, bus/state failures
  * @pre The bound I2C peripheral is configured, enabled, idle, and exclusively owned by the caller
- * @note Two-byte and three-byte commands (those with parameters) are not
- * expressible through this API; the Driver initializes such state internally
+ * @note @ref SSD1306_DeInit and @ref SSD1306_Init are independent conjugate
+ * entry points; neither calls the other, and the application owns their
+ * ordering and any reset decision
  */
-driver_status_t SSD1306_SendCommand
-(
-	const ssd1306_t* const	pSSD1306,
-	const ssd1306_cmd_t		command
-);
+driver_status_t SSD1306_DeInit(ssd1306_t* const pSSD1306);
 
 /**
  * @brief Initializing the SSD1306 Controller configuration for the target display
@@ -181,6 +179,64 @@ driver_status_t SSD1306_SendCommand
  */
 driver_status_t SSD1306_Init(ssd1306_t* const pSSD1306);
 
+// --- Command/Data Transport ---
+
+/**
+ * @brief Transmits one single-byte SSD1306 command over the bound I2C peripheral
+ * @details
+ * Frames the opcode behind the command control byte and issues one bounded
+ * controller transmit. The display state is otherwise untouched.
+ *
+ * @param[in] pSSD1306 Display state owning an initialized I2C peripheral
+ * Expected values:
+ * - Non-`NULL`: Command is transmitted through @p `pSSD1306`->`pI2C`
+ * @param[in] command One canonical SSD1306 command or encoded command byte
+ * Accepted values:
+ * - Any `ssd1306_cmd_t` opcode or parameter-less encoded command from
+ *   ssd1306_reg_map.h
+ * @returns @ref driver_status_t "SSD1306 command-transmit operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Command byte was transmitted and the transaction closed with STOP
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pSSD1306` was `NULL`
+ * @note The remaining failure statuses map one-to-one from
+ * @ref I2C_MasterTransmit: timeout, no-ack, arbitration loss, overrun, line
+ * fault, bus/state failures
+ * @pre The bound I2C peripheral is configured, enabled, idle, and exclusively owned by the caller
+ * @note Two-byte and three-byte commands (those with parameters) are not
+ * expressible through this API; the Driver initializes such state internally
+ */
+driver_status_t SSD1306_SendCommand(const ssd1306_t* const pSSD1306, const ssd1306_cmd_t command);
+
+/**
+ * @brief Transmits one single data byte into the SSD1306 GDDRAM address pointer
+ * @details
+ * Frames the byte behind the data control byte and issues one bounded
+ * controller transmit, so the controller stores it at the address its address
+ * counter currently holds and auto-advances that counter. This is the
+ * data-payload conjugate of @ref SSD1306_SendCommand; the transport framing
+ * is the only difference between the pair.
+ *
+ * @param[in] pSSD1306 Display state owning an initialized I2C peripheral
+ * Expected values:
+ * - Non-`NULL`: Byte is transmitted through @p `pSSD1306`->`pI2C`
+ * @param[in] data One GDDRAM data byte written at the current address pointer
+ * Accepted values:
+ * - Any `ssd1306_data_t` byte; each bit lights the pixel its position encodes
+ * @returns @ref driver_status_t "SSD1306 data-transmit operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Data byte was transmitted and the transaction closed with STOP
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pSSD1306` was `NULL`
+ * @note The remaining failure statuses map one-to-one from
+ * @ref I2C_MasterTransmit: timeout, no-ack, arbitration loss, overrun, line
+ * fault, bus/state failures
+ * @pre The bound I2C peripheral is configured, enabled, idle, and exclusively owned by the caller
+ * @pre @ref SSD1306_Init configured the controller addressing mode
+ * @note This API targets the controller's live address pointer directly; the
+ * framebuffer path (@ref SSD1306_WritePixel plus @ref SSD1306_Refresh) remains
+ * the canonical way to stage panel content
+ */
+driver_status_t SSD1306_SendData(const ssd1306_t* const pSSD1306, const ssd1306_data_t data);
+
+// --- Framebuffer Graphics ---
+
 /**
  * @brief Applies one byte-wide fill pattern to the complete local framebuffer
  * @details
@@ -201,11 +257,7 @@ driver_status_t SSD1306_Init(ssd1306_t* const pSSD1306);
  * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pSSD1306` was `NULL`
  * @note Pure memory operation with no MMIO or I2C access
  */
-driver_status_t SSD1306_FillFrameBuffer
-(
-	ssd1306_t* const		pSSD1306,
-	const ssd1306_data_t	pattern
-);
+driver_status_t SSD1306_FillFrameBuffer(ssd1306_t* const pSSD1306, const ssd1306_data_t pattern);
 
 /**
  * @brief Writes one pixel of the requested color into the local framebuffer
@@ -245,6 +297,56 @@ driver_status_t SSD1306_WritePixel
 	const ssd1306_row_t		Y,
 	const ssd1306_data_t	color
 );
+
+/**
+ * @brief Draws a straight line between two panel points in the local framebuffer
+ * @details
+ * Walks the segment from (X1, Y1) to (X2, Y2) with Bresenham's integer
+ * line algorithm: a running error term accumulates the fractional slope and
+ * decides at each step whether the line advances X, Y, or both, so all eight
+ * slope octants render without floating-point arithmetic. Every decided
+ * pixel is written through @ref SSD1306_WritePixel, which owns the page/bit
+ * framebuffer decomposition and the color vocabulary. Framebuffer-only
+ * operation; call @ref SSD1306_Refresh to copy the framebuffer into GDDRAM.
+ *
+ * @param[in,out] pSSD1306 Display state whose framebuffer receives the line
+ * Expected values:
+ * - Non-`NULL`: The segment pixels are written into the framebuffer
+ * @param[in] X1 First endpoint X-coordinate on the panel as a column address
+ * Accepted values:
+ * - @ref `SSD1306_COLUMN_MIN` to @ref `SSD1306_COLUMN_MAX`: Valid column address
+ * @param[in] Y1 First endpoint Y-coordinate on the panel as a vertical pixel row
+ * Accepted values:
+ * - `0x00U` to `SSD1306_VERTICAL_PIXELS - 1`: Valid vertical pixel row
+ * @param[in] X2 Second endpoint X-coordinate on the panel as a column address
+ * Accepted values:
+ * - @ref `SSD1306_COLUMN_MIN` to @ref `SSD1306_COLUMN_MAX`: Valid column address
+ * @param[in] Y2 Second endpoint Y-coordinate on the panel as a vertical pixel row
+ * Accepted values:
+ * - `0x00U` to `SSD1306_VERTICAL_PIXELS - 1`: Valid vertical pixel row
+ * @param[in] color Requested display state of the segment pixels
+ * Accepted values:
+ * - @ref `SSD1306_COLOR_BLACK`: The segment pixels are cleared
+ * - @ref `SSD1306_COLOR_WHITE`: The segment pixels are set
+ * @returns @ref driver_status_t "SSD1306 line-draw operation status"
+ * @retval - @ref `DRIVER_STATUS_SUCCESS`: Every segment pixel was written with @p `color`
+ * @retval - @ref `DRIVER_STATUS_ERROR_NULL_PTR`: @p `pSSD1306` was `NULL`
+ * @retval - @ref `DRIVER_STATUS_ERROR_INVALID_ARG`: @p `X1` / @p `Y1` / @p `X2` / @p `Y2` or @p `color` was invalid
+ * @note Pure memory operation with no MMIO or I2C access
+ * @note Both endpoints are validated before the first pixel write, so an
+ * invalid request never leaves a partial line in the framebuffer
+ */
+driver_status_t SSD1306_DrawLine
+(
+	ssd1306_t* const		pSSD1306,
+	const ssd1306_column_t	X1,
+	const ssd1306_row_t		Y1,
+	const ssd1306_column_t	X2,
+	const ssd1306_row_t		Y2,
+	const ssd1306_data_t	color
+);
+
+// --- Panel Refresh ---
 
 /**
  * @brief Transmits the local framebuffer into the SSD1306 GDDRAM

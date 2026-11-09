@@ -8,17 +8,19 @@
  * @section SSD1306_C_HIERARCHY Hierarchy
  * - Position: SSD1306 Driver implementation layer consuming the public API
  *   declared in ssd1306.h
- * - Used by: Application modules through @ref SSD1306_Init, @ref
- *   SSD1306_SendCommand, @ref SSD1306_FillFrameBuffer, @ref SSD1306_WritePixel,
+ * - Used by: Application modules through @ref SSD1306_DeInit, @ref
+ *   SSD1306_Init, @ref SSD1306_SendCommand, @ref SSD1306_SendData, @ref
+ *   SSD1306_FillFrameBuffer, @ref SSD1306_WritePixel, @ref SSD1306_DrawLine,
  *   and @ref SSD1306_Refresh
  * - Calls: @ref I2C_MasterTransmit from the I2C Driver for every transport
  *
  * @section SSD1306_C_RESPONSIBILITY Responsibility
  * This file composes the canonical SSD1306 command vocabulary into transmit
- * streams, owns the file-scope initialization command stream, and implements
- * the framebuffer semantics (fill, pixel write, full-panel refresh). Validation
- * completes before any local mutation, and every transport result preserves
- * the exact I2C Driver status one-to-one.
+ * streams, owns the file-scope initialization and deinitialization command
+ * streams, and implements the framebuffer semantics (fill, pixel write,
+ * Bresenham line draw, full-panel refresh). Validation completes before any
+ * local mutation, and every transport result preserves the exact I2C Driver
+ * status one-to-one.
  *
  * @section SSD1306_C_DEPENDENCIES Dependencies
  * Direct dependencies: ssd1306.h for the public API and state structure and
@@ -153,10 +155,33 @@ static const ssd1306_cmd_t ssd1306InitStream[] =
 	SSD1306_CMD_SET_COM_PINS_HARDWARE_CONFIG,		SSD1306_COM_PINS_ALTERNATIVE,
 	SSD1306_CMD_SET_CONTRAST,						SSD1306_CONFIG_CONTRAST,
 	SSD1306_CMD_SET_PRECHARGE_PERIOD,				SSD1306_CONFIG_PRECHARGE_PERIOD,
-	SSD1306_CMD_SET_VCOMH_DESELECT_LEVEL,			SSD1306_VCOMH_DESELECT_0_65_VCC,
+	SSD1306_CMD_SET_VCOMH_DESELECT_LEVEL,			SSD1306_CONFIG_VCOMH_DESELECT,
 	SSD1306_CMD_ENTIRE_DISPLAY_FOLLOW_RAM,
 	SSD1306_CMD_SET_NORMAL_DISPLAY,
 	SSD1306_CMD_SET_DISPLAY_ON,
+};
+
+/**
+ * @brief Complete deinit command-stream length including the control byte
+ * @def SSD1306_DEINIT_STREAM_LENGTH
+ * @details
+ * The array of bytes below, computed from its actual declared size so the
+ * stream definition and its transmission length cannot drift apart.
+ */
+#define SSD1306_DEINIT_STREAM_LENGTH				((uint16_t) sizeof(ssd1306DeInitStream))
+
+/**
+ * @brief Complete power-off teardown command stream for the target panel
+ * @details
+ * The hardware-state conjugate of the init stream: display off first stops
+ * the panel emission, then charge-pump disable removes the internal booster
+ * so the controller rests in its power-safe standby configuration.
+ */
+static const ssd1306_cmd_t ssd1306DeInitStream[] =
+{
+	SSD1306_CTRL_BYTE_COMMAND,
+	SSD1306_CMD_SET_DISPLAY_OFF,
+	SSD1306_CMD_SET_CHARGE_PUMP,					SSD1306_CHARGE_PUMP_DISABLE,
 };
 
 // ==================================================================================================== //
@@ -195,14 +220,12 @@ __STATIC_FORCEINLINE driver_status_t _SSD1306_TransmitStream
 // Public Functions
 // ==================================================================================================== //
 
-driver_status_t SSD1306_SendCommand
-(
-	const ssd1306_t* const	pSSD1306,
-	const ssd1306_cmd_t		command
-)
+// --- Controller Lifecycle ---
+
+driver_status_t SSD1306_DeInit(ssd1306_t* const pSSD1306)
 {
 	// Local Variables
-	ssd1306_cmd_t stream[SSD1306_COMMAND_STREAM_LENGTH] = {0x00U, 0x00U};
+	driver_status_t i2cState = DRIVER_STATUS_ERROR;
 
 	// Validate Input and State
 	if (pSSD1306 == NULL)
@@ -214,11 +237,11 @@ driver_status_t SSD1306_SendCommand
 		return DRIVER_STATUS_ERROR_NULL_PTR;
 	}
 
-	//! The control byte marks this two-byte transaction as a command payload.
-	stream[0] = SSD1306_CTRL_BYTE_COMMAND;
-	stream[1] = command;
+	//! Transmit the teardown stream so the panel emission stops and the charge
+	//! pump powers down; the framebuffer stays intact by contract.
+	i2cState = _SSD1306_TransmitStream(pSSD1306, ssd1306DeInitStream, SSD1306_DEINIT_STREAM_LENGTH);
 
-	return _SSD1306_TransmitStream(pSSD1306, stream, SSD1306_COMMAND_STREAM_LENGTH);
+	return i2cState;
 }
 
 driver_status_t SSD1306_Init(ssd1306_t* const pSSD1306)
@@ -263,6 +286,62 @@ driver_status_t SSD1306_Init(ssd1306_t* const pSSD1306)
 
 	return DRIVER_STATUS_SUCCESS;
 }
+
+// --- Command/Data Transport ---
+
+driver_status_t SSD1306_SendCommand
+(
+	const ssd1306_t* const	pSSD1306,
+	const ssd1306_cmd_t		command
+)
+{
+	// Local Variables
+	ssd1306_cmd_t stream[SSD1306_COMMAND_STREAM_LENGTH] = {0x00U, 0x00U};
+
+	// Validate Input and State
+	if (pSSD1306 == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+	if (pSSD1306->pI2C == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	//! The control byte marks this two-byte transaction as a command payload.
+	stream[0] = SSD1306_CTRL_BYTE_COMMAND;
+	stream[1] = command;
+
+	return _SSD1306_TransmitStream(pSSD1306, stream, SSD1306_COMMAND_STREAM_LENGTH);
+}
+
+driver_status_t SSD1306_SendData
+(
+	const ssd1306_t* const	pSSD1306,
+	const ssd1306_data_t	data
+)
+{
+	// Local Variables
+	ssd1306_data_t stream[SSD1306_COMMAND_STREAM_LENGTH] = {0x00U, 0x00U};
+
+	// Validate Input and State
+	if (pSSD1306 == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+	if (pSSD1306->pI2C == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	//! The control byte marks this two-byte transaction as a GDDRAM data payload.
+	stream[0] = SSD1306_CTRL_BYTE_DATA;
+	stream[1] = data;
+
+	return _SSD1306_TransmitStream(pSSD1306, stream, SSD1306_COMMAND_STREAM_LENGTH);
+}
+
+// --- Framebuffer Graphics ---
 
 driver_status_t SSD1306_FillFrameBuffer
 (
@@ -337,6 +416,109 @@ driver_status_t SSD1306_WritePixel
 	return DRIVER_STATUS_SUCCESS;
 }
 
+driver_status_t SSD1306_DrawLine
+(
+	ssd1306_t* const		pSSD1306,
+	const ssd1306_column_t	X1,
+	const ssd1306_row_t		Y1,
+	const ssd1306_column_t	X2,
+	const ssd1306_row_t		Y2,
+	const ssd1306_data_t	color
+)
+{
+	// Local Variables
+	//! Signed working coordinates are required because Bresenham steps both
+	//! directions; int16_t spans the 128x64 panel with wide margin.
+	int16_t cursorX = (int16_t) X1;
+	int16_t cursorY = (int16_t) Y1;
+	//! Endpoint deltas fit int16_t because both axes span at most 127 apart.
+	int16_t deltaX = (int16_t) X2 - (int16_t) X1;
+	int16_t deltaY = (int16_t) Y2 - (int16_t) Y1;
+	int16_t stepX = ((deltaX >= 0) ? (int16_t) 1 : (int16_t) -1);
+	int16_t stepY = ((deltaY >= 0) ? (int16_t) 1 : (int16_t) -1);
+	//! Absolute axis distances double as the error-term step sizes below.
+	uint16_t spanX = (uint16_t) ((deltaX >= 0) ? deltaX : (int16_t) -deltaX);
+	uint16_t spanY = (uint16_t) ((deltaY >= 0) ? deltaY : (int16_t) -deltaY);
+	//! Bresenham error accumulates the fractional slope in halves of one pixel.
+	int16_t error = (int16_t) spanX - (int16_t) spanY;
+	//! Completeness flag for the bounded walk: set once the cursor lands on
+	//! the validated endpoint, ending the loop from its condition instead of
+	//! a break statement.
+	uint8_t walkComplete = 0U;
+
+	// Validate Input and State
+	if (pSSD1306 == NULL)
+	{
+		return DRIVER_STATUS_ERROR_NULL_PTR;
+	}
+
+	//! Validate both endpoints and the color up front so a rejected request
+	//! cannot leave a partially drawn line behind in the framebuffer.
+	if
+	(
+		(X1 >= SSD1306_HORIZONTAL_PIXELS) || (X2 >= SSD1306_HORIZONTAL_PIXELS) ||
+		(Y1 >= SSD1306_VERTICAL_PIXELS) || (Y2 >= SSD1306_VERTICAL_PIXELS) ||
+		(X2 < X1) || (Y2 < Y1) || ((color != SSD1306_COLOR_BLACK) && (color != SSD1306_COLOR_WHITE))
+	)
+	{
+		return DRIVER_STATUS_ERROR_INVALID_ARG;
+	}
+
+	//! A Bresenham step advances the cursor along exactly one axis (or both
+	//! axes on a diagonal step), so the walk needs at most spanX + spanY
+	//! moves. Diagonal steps consume two spans in one plotted pixel, so the
+	//! exact pixel count is not knowable up front; the loop bound is instead
+	//! the worst case, and the walk ends at the exact endpoint. Termination
+	//! is still guaranteed by construction - both cursors advance
+	//! monotonically every iteration, so the loop can never exceed
+	//! spanX + spanY + 1 iterations: no open-ended walk, no super-loop
+	//! possibility. Without the endpoint test, a walk that reaches its
+	//! endpoint on a diagonal step (e.g. (0,0) -> (2,1) plots (2,1) on
+	//! iteration 3 of a 4-iteration bound) would over-advance one axis past
+	//! the panel geometry and make the next WritePixel reject a coordinate
+	//! such as X = 128 with DRIVER_STATUS_ERROR_INVALID_ARG.
+	const uint16_t pixelCount = (uint16_t) (((uint16_t) spanX) + ((uint16_t) spanY) + 1U);
+
+	//! Walk the segment pixel by pixel; the algorithm advances X whenever the
+	//! accumulated error shows the line has crossed the next column boundary,
+	//! and Y whenever it has crossed the next row boundary.
+	for (uint16_t pixelIndex = 0U; (pixelIndex < pixelCount) && (walkComplete == 0U); ++pixelIndex)
+	{
+		ASSERT_DRIVER_STATUS(SSD1306_WritePixel(pSSD1306, (ssd1306_column_t) cursorX, (ssd1306_row_t) cursorY, color));
+
+		//! Once the cursor lands on the endpoint the walk is finished; any
+		//! further iteration would only over-advance a cursor past the
+		//! validated geometry.
+		if ((cursorX == (int16_t) X2) && (cursorY == (int16_t) Y2))
+		{
+			walkComplete = 1U;
+		}
+		else
+		{
+			//! Error doubling compares the X-side and Y-side crossing tests in one
+			//! step: e2 > -spanY means the line crossed a column boundary, and
+			//! e2 < spanX means it crossed a row boundary; e.g. a diagonal line
+			//! (spanX == spanY) satisfies both and steps X and Y together.
+			const int16_t errorDoubled = (int16_t) (((int32_t) error) * 2);
+
+			if (errorDoubled > (int16_t) -spanY)
+			{
+				error -= (int16_t) spanY;
+				cursorX += stepX;
+			}
+			if (errorDoubled < (int16_t) spanX)
+			{
+				error += (int16_t) spanX;
+				cursorY += stepY;
+			}
+		}
+	}
+
+	return DRIVER_STATUS_SUCCESS;
+}
+
+// --- Panel Refresh ---
+
 driver_status_t SSD1306_Refresh(ssd1306_t* const pSSD1306)
 {
 	// Local Variables
@@ -350,7 +532,7 @@ driver_status_t SSD1306_Refresh(ssd1306_t* const pSSD1306)
 	//! later copy path ever writes fewer elements than it transmits.
 	ssd1306_cmd_t pageStream[SSD1306_PAGE_STREAM_DATA_LENGTH] =
 	{
-		[0 ... SSD1306_PAGE_STREAM_DATA_LENGTH - 1] = SSD1306_FILL_PATTERN_BLACK
+		[0 ... (SSD1306_PAGE_STREAM_DATA_LENGTH - 1)] = SSD1306_FILL_PATTERN_BLACK
 	};
 	ssd1306_page_t pageIndex = 0x00U;
 	ssd1306_column_t columnIndex = 0x00U;
